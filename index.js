@@ -1,10 +1,11 @@
 const axios = require('axios');
+const CryptoJS = require('crypto-js');
 
 // ==========================
 // ГЛОБАЛЬНОЕ СОСТОЯНИЕ — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (ФЬЮЧЕРСЫ)
 // ==========================
 let globalState = {
-  balance: 100, // начальный капитал для фьючерсов
+  balance: 100,
   positions: {},
   history: [],
   stats: {
@@ -24,9 +25,9 @@ let globalState = {
     fearSentimentHistory: []
   },
   isRunning: true,
-  takerFee: 0.0005, // 0.05% для фьючерсов
-  maxRiskPerTrade: 0.02, // не более 2% от депозита
-  maxLeverage: 10, // макс плечо
+  takerFee: 0.0005,
+  maxRiskPerTrade: 0.02,
+  maxLeverage: 5, // для начала — 5x, можно увеличить позже
   watchlist: [
     { symbol: 'BTC', name: 'bitcoin' },
     { symbol: 'ETH', name: 'ethereum' },
@@ -42,14 +43,100 @@ let globalState = {
 };
 
 globalState.watchlist.forEach(coin => {
-  globalState.positions[coin.name] = null; // null = нет позиции, { side: 'LONG'/'SHORT', size, entryPrice, ... }
+  globalState.positions[coin.name] = null;
   globalState.marketMemory.lastTrades[coin.name] = [];
   globalState.marketMemory.consecutiveTrades[coin.name] = 0;
   globalState.marketMemory.volatilityHistory[coin.name] = [];
 });
 
 // ==========================
-// ФУНКЦИЯ: Пополнение баланса
+// КОНФИГУРАЦИЯ BINGX API
+// ==========================
+const BINGX_API_KEY = process.env.BINGX_API_KEY;
+const BINGX_SECRET_KEY = process.env.BINGX_SECRET_KEY;
+const BINGX_FUTURES_URL = 'https://open-api.bingx.com';
+
+// ==========================
+// ФУНКЦИЯ: Подпись запроса для BingX
+// ==========================
+function signBingXRequest(params) {
+  const sortedParams = Object.keys(params)
+    .sort()
+    .map(key => `${key}=${params[key]}`)
+    .join('&');
+  return CryptoJS.HmacSHA256(sortedParams, BINGX_SECRET_KEY).toString(CryptoJS.enc.Hex);
+}
+
+// ==========================
+// ФУНКЦИЯ: Установка плеча для фьючерсов
+// ==========================
+async function setBingXLeverage(symbol, leverage) {
+  try {
+    const timestamp = Date.now();
+    const params = { symbol, leverage: leverage.toString(), timestamp };
+    const signature = signBingXRequest(params);
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/trade/leverage?${new URLSearchParams(params)}&signature=${signature}`;
+
+    const response = await axios.post(url, {}, {
+      headers: { 'X-BX-APIKEY': BINGX_API_KEY },
+      timeout: 10000
+    });
+
+    if (response.data.code === 0) {
+      console.log(`✅ Плечо ${leverage}x установлено для ${symbol}`);
+    } else {
+      console.error(`❌ Ошибка установки плеча для ${symbol}:`, response.data.msg);
+    }
+  } catch (error) {
+    console.error(`💥 Ошибка установки плеча:`, error.message);
+  }
+}
+
+// ==========================
+// ФУНКЦИЯ: Размещение фьючерсного ордера
+// ==========================
+async function placeBingXFuturesOrder(symbol, side, positionSide, type, quantity, price = null, leverage) {
+  try {
+    // Устанавливаем плечо перед ордером
+    await setBingXLeverage(symbol, leverage);
+
+    const timestamp = Date.now();
+    const params = {
+      symbol,
+      side,
+      positionSide,
+      type,
+      quantity: quantity.toFixed(6),
+      timestamp
+    };
+
+    if (price && type === 'LIMIT') {
+      params.price = price.toFixed(8);
+    }
+
+    const signature = signBingXRequest(params);
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/trade/order?${new URLSearchParams(params)}&signature=${signature}`;
+
+    const response = await axios.post(url, {}, {
+      headers: { 'X-BX-APIKEY': BINGX_API_KEY },
+      timeout: 10000
+    });
+
+    if (response.data.code === 0) {
+      console.log(`✅ УСПЕШНЫЙ ОРДЕР: ${side} ${quantity} ${symbol}`);
+      return response.data.data;
+    } else {
+      console.error(`❌ ОШИБКА ОРДЕРА:`, response.data.msg);
+      return null;
+    }
+  } catch (error) {
+    console.error(`💥 Ошибка при размещении ордера:`, error.message);
+    return null;
+  }
+}
+
+// ==========================
+// ФУНКЦИЯ: Пополнение баланса (для демо)
 // ==========================
 function deposit(amount) {
   if (amount <= 0) return false;
@@ -81,8 +168,6 @@ async function getFearAndGreedIndex() {
 // ==========================
 async function getCurrentFuturesPrices() {
   try {
-    console.log('📡 Запрашиваю текущие цены фьючерсов с BingX...');
-
     const response = await axios.get('https://open-api.bingx.com/openApi/swap/v2/quote/price', { timeout: 15000 });
 
     if (!response.data || !Array.isArray(response.data.data)) {
@@ -111,7 +196,6 @@ async function getCurrentFuturesPrices() {
       prices[coinName] = parseFloat(ticker.price);
     }
 
-    console.log('✅ Цены фьючерсов получены успешно');
     return prices;
   } catch (error) {
     console.error('❌ Ошибка получения цен фьючерсов с BingX:', error.message);
@@ -142,8 +226,6 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 50) {
       return [];
     }
 
-    console.log(`📡 Запрашиваю историю фьючерсов для: ${bingxSymbol}`);
-
     const response = await axios.get('https://open-api.bingx.com/openApi/swap/v2/quote/klines', {
       params: {
         symbol: bingxSymbol,
@@ -166,7 +248,6 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 50) {
       time: candle.time
     }));
 
-    console.log(`✅ Получено ${candles.length} свечей для ${symbol}`);
     return candles;
 
   } catch (error) {
@@ -176,7 +257,7 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 50) {
 }
 
 // ==========================
-// ФУНКЦИЯ: УНИКАЛЬНЫЙ ФИЛОСОФСКИЙ АНАЛИЗ (ФЬЮЧЕРСЫ)
+// ФУНКЦИЯ: УНИКАЛЬНЫЙ ФИЛОСОФСКИЙ АНАЛИЗ
 // ==========================
 function analyzeFuturesWithWisdom(candles, coinName, currentFearIndex) {
   if (candles.length < 10) return null;
@@ -184,51 +265,42 @@ function analyzeFuturesWithWisdom(candles, coinName, currentFearIndex) {
   const prices = candles.map(c => c.price);
   const currentPrice = prices[prices.length - 1];
   const sma20 = prices.slice(-20).reduce((a, b) => a + b, 0) / 20;
-  const atr = calculateATR(candles.slice(-14)); // волатильность
+  const atr = calculateATR(candles.slice(-14));
   const rsi = calculateRSI(prices.slice(-14));
 
-  // 🌀 Закон сохранения энергии — рынок не может бесконечно двигаться в одну сторону
   const isOverextendedUp = currentPrice > sma20 * 1.05;
   const isOverextendedDown = currentPrice < sma20 * 0.95;
-
-  // 🦋 Эффект бабочки — резкий рост волатильности = сигнал
   const volatility = atr / currentPrice;
   const isHighVolatility = volatility > 0.03;
-
-  // 🧭 Компас страха
   const isExtremeFear = currentFearIndex < 20;
   const isExtremeGreed = currentFearIndex > 80;
 
   let signal = {
-    direction: null, // 'LONG' или 'SHORT'
-    confidence: 0.5, // 0.0 - 1.0
+    direction: null,
+    confidence: 0.5,
     leverage: 1,
     reasoning: [],
     stopLoss: null,
     takeProfit: null
   };
 
-  // 🚀 LONG: страх + перепроданность + импульс
   if (isExtremeFear && rsi < 30 && !isOverextendedDown) {
     signal.direction = 'LONG';
     signal.confidence += 0.3;
     signal.reasoning.push("☯️ Инь-Ян: страх + перепроданность → идеальный вход в LONG");
   }
 
-  // 📉 SHORT: жадность + перекупленность + замедление
   if (isExtremeGreed && rsi > 70 && !isOverextendedUp) {
     signal.direction = 'SHORT';
     signal.confidence += 0.3;
     signal.reasoning.push("🔥 Перегрев: жадность + перекупленность → вход в SHORT");
   }
 
-  // 🦋 Эффект бабочки — волатильность как триггер
   if (isHighVolatility) {
     signal.confidence += 0.2;
     signal.reasoning.push("🦋 Эффект бабочки: резкий скачок волатильности → ускорение тренда");
   }
 
-  // 🧱 Архитектура риска — снижаем плечо после серии сделок
   const consecutive = globalState.marketMemory.consecutiveTrades[coinName] || 0;
   if (consecutive >= 2) {
     signal.leverage = Math.max(1, globalState.maxLeverage * 0.5);
@@ -237,16 +309,14 @@ function analyzeFuturesWithWisdom(candles, coinName, currentFearIndex) {
     signal.leverage = globalState.maxLeverage;
   }
 
-  // Устанавливаем стоп-лосс и тейк-профит
   if (signal.direction === 'LONG') {
-    signal.stopLoss = currentPrice * 0.98; // 2% стоп
-    signal.takeProfit = currentPrice * 1.03; // 3% тейк
+    signal.stopLoss = currentPrice * 0.98;
+    signal.takeProfit = currentPrice * 1.03;
   } else if (signal.direction === 'SHORT') {
-    signal.stopLoss = currentPrice * 1.02; // 2% стоп
-    signal.takeProfit = currentPrice * 0.97; // 3% тейк
+    signal.stopLoss = currentPrice * 1.02;
+    signal.takeProfit = currentPrice * 0.97;
   }
 
-  // 🌊 Цунами прибыли — динамический выход
   signal.reasoning.push("🌊 Цунами прибыли: 50% позиции закрываем на +3%, остаток в трейлинг-стоп");
 
   return {
@@ -290,60 +360,72 @@ function calculateRSI(prices) {
 }
 
 // ==========================
-// ФУНКЦИЯ: Открытие фьючерсной позиции (ДЕМО)
+// ФУНКЦИЯ: Открытие фьючерсной позиции (РЕАЛЬНАЯ ТОРГОВЛЯ)
 // ==========================
-function openFuturesTrade(coin, direction, leverage, size, price, stopLoss, takeProfit) {
-  const cost = (size * price) / leverage; // маржинальная стоимость
-  const fee = size * price * globalState.takerFee;
+async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss, takeProfit) {
+  const symbolMap = {
+    'bitcoin': 'BTC-USDT',
+    'ethereum': 'ETH-USDT',
+    'binancecoin': 'BNB-USDT',
+    'solana': 'SOL-USDT',
+    'ripple': 'XRP-USDT',
+    'dogecoin': 'DOGE-USDT',
+    'cardano': 'ADA-USDT',
+    'polkadot': 'DOT-USDT',
+    'chainlink': 'LINK-USDT'
+  };
 
-  if (cost + fee > globalState.balance * globalState.maxRiskPerTrade) {
-    console.log(`❌ Риск превышает ${globalState.maxRiskPerTrade * 100}% от депозита`);
+  const symbol = symbolMap[coin];
+  if (!symbol) {
+    console.error(`❌ Неизвестный символ для ${coin}`);
     return false;
   }
 
-  if (globalState.positions[coin]) {
-    console.log(`❌ Уже есть открытая позиция по ${coin}`);
+  const side = direction === 'LONG' ? 'BUY' : 'SELL';
+  const positionSide = direction;
+
+  console.log(`🌐 Отправка ${direction} ордера на BingX Futures: ${size} ${symbol} с плечом ${leverage}x`);
+
+  const result = await placeBingXFuturesOrder(symbol, side, positionSide, 'MARKET', size, null, leverage);
+
+  if (result) {
+    const trade = {
+      coin,
+      type: direction,
+      size,
+      entryPrice: price,
+      leverage,
+      stopLoss,
+      takeProfit,
+      fee: 0,
+      timestamp: new Date().toLocaleString(),
+      status: 'OPEN',
+      orderId: result.orderId
+    };
+
+    globalState.history.push(trade);
+    globalState.positions[coin] = {
+      side: direction,
+      size,
+      entryPrice: price,
+      leverage,
+      stopLoss,
+      takeProfit,
+      fee: 0,
+      timestamp: new Date().toLocaleString(),
+      trailingStop: price * (direction === 'LONG' ? 0.99 : 1.01)
+    };
+
+    globalState.stats.totalTrades++;
+    globalState.marketMemory.consecutiveTrades[coin] = (globalState.marketMemory.consecutiveTrades[coin] || 0) + 1;
+    globalState.stats.maxLeverageUsed = Math.max(globalState.stats.maxLeverageUsed, leverage);
+
+    console.log(`✅ УСПЕШНО: ${direction} ${size} ${coin} на BingX Futures`);
+    return true;
+  } else {
+    console.log(`❌ Не удалось выполнить ордер на BingX Futures`);
     return false;
   }
-
-  globalState.balance -= fee;
-  globalState.positions[coin] = {
-    side: direction,
-    size,
-    entryPrice: price,
-    leverage,
-    stopLoss,
-    takeProfit,
-    fee,
-    timestamp: new Date().toLocaleString(),
-    trailingStop: price * (direction === 'LONG' ? 0.99 : 1.01) // начальный трейлинг
-  };
-
-  const trade = {
-    coin,
-    type: direction,
-    size,
-    entryPrice: price,
-    leverage,
-    stopLoss,
-    takeProfit,
-    fee,
-    timestamp: new Date().toLocaleString(),
-    status: 'OPEN'
-  };
-
-  globalState.history.push(trade);
-  globalState.stats.totalTrades++;
-  globalState.marketMemory.consecutiveTrades[coin] = (globalState.marketMemory.consecutiveTrades[coin] || 0) + 1;
-  globalState.stats.maxLeverageUsed = Math.max(globalState.stats.maxLeverageUsed, leverage);
-
-  console.log(`✅ ОТКРЫТА ${direction} ПОЗИЦИЯ: ${size.toFixed(6)} ${coin} с плечом ${leverage}x`);
-  console.log(`   💰 Маржинальная стоимость: $${cost.toFixed(2)}`);
-  console.log(`   🎯 Тейк-профит: $${takeProfit.toFixed(2)} (+3%)`);
-  console.log(`   🛑 Стоп-лосс: $${stopLoss.toFixed(2)} (-2%)`);
-  console.log(`   💸 Комиссия: $${fee.toFixed(4)}`);
-
-  return true;
 }
 
 // ==========================
@@ -360,7 +442,6 @@ async function checkOpenPositions(currentPrices) {
     let shouldClose = false;
     let reason = '';
 
-    // 🌊 Цунами прибыли: 50% при +3%
     if (position.side === 'LONG' && currentPrice >= position.takeProfit) {
       shouldClose = true;
       reason = '🎯 Достигнут тейк-профит +3% — фиксируем 50% прибыли';
@@ -369,7 +450,6 @@ async function checkOpenPositions(currentPrices) {
       reason = '🎯 Достигнут тейк-профит +3% — фиксируем 50% прибыли';
     }
 
-    // 🛑 Стоп-лосс
     if (position.side === 'LONG' && currentPrice <= position.stopLoss) {
       shouldClose = true;
       reason = '🛑 Сработал стоп-лосс -2%';
@@ -380,7 +460,6 @@ async function checkOpenPositions(currentPrices) {
 
     if (shouldClose) {
       console.log(`✅ ЗАКРЫТИЕ: ${reason} по ${coin.name}`);
-      // В демо-режиме просто закрываем
       const trade = globalState.history.find(t => t.coin === coin.name && t.status === 'OPEN');
       if (trade) {
         trade.exitPrice = currentPrice;
@@ -389,20 +468,18 @@ async function checkOpenPositions(currentPrices) {
           : (trade.entryPrice - currentPrice) / trade.entryPrice;
         trade.status = 'CLOSED';
         
-        // Обновляем статистику
         if (trade.profitPercent > 0) {
           globalState.stats.profitableTrades++;
           globalState.balance += (trade.size * trade.entryPrice * trade.profitPercent);
         } else {
           globalState.stats.losingTrades++;
-          globalState.balance += (trade.size * trade.entryPrice * trade.profitPercent); // убыток
+          globalState.balance += (trade.size * trade.entryPrice * trade.profitPercent);
         }
       }
       
       globalState.positions[coin.name] = null;
       globalState.marketMemory.consecutiveTrades[coin.name] = 0;
     } else {
-      // Обновляем трейлинг-стоп
       if (position.side === 'LONG' && currentPrice > position.entryPrice * 1.01) {
         position.trailingStop = Math.max(position.trailingStop, currentPrice * 0.99);
       } else if (position.side === 'SHORT' && currentPrice < position.entryPrice * 0.99) {
@@ -438,10 +515,9 @@ function showOpenPositionsProgress(currentPrices) {
       distanceToTarget = ((currentPrice - targetPrice) / currentPrice) * 100;
     }
 
-    // 🎲 Расчёт вероятности успеха
     let successProbability = 50;
     if (progress > 0) successProbability = 50 + progress * 0.5;
-    if (distanceToTarget < 0) successProbability += 20; // уже в плюсе
+    if (distanceToTarget < 0) successProbability += 20;
     successProbability = Math.min(95, Math.max(5, successProbability));
 
     console.log(`\n📈 ${coin.name} ${position.side}:`);
@@ -476,13 +552,13 @@ function printStats() {
 // ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
 // ==========================
 (async () => {
-  console.log('🤖 ЗАПУСК БОТА v7.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (ФЬЮЧЕРСЫ С ПЛЕЧОМ)');
+  console.log('🤖 ЗАПУСК БОТА v8.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (РЕАЛЬНАЯ ТОРГОВЛЯ НА BINGX)');
   console.log('📌 deposit(сумма) — пополнить баланс');
-  console.log('📈 Торгует фьючерсами с риск-менеджментом и философской логикой');
+  console.log('📈 Использует API-ключ: CryptoPhilosopherBot');
 
   while (globalState.isRunning) {
     try {
-      console.log(`\n[${new Date().toLocaleTimeString()}] === АНАЛИЗ ОТ ВАСИ 3000 (ФЬЮЧЕРСЫ) ===`);
+      console.log(`\n[${new Date().toLocaleTimeString()}] === АНАЛИЗ ОТ ВАСИ 3000 ===`);
 
       const fearIndex = await getFearAndGreedIndex();
       console.log(`😱 Индекс страха и жадности: ${fearIndex}`);
@@ -526,7 +602,6 @@ function printStats() {
         console.log(`\n💎 ВАСЯ 3000 РЕКОМЕНДУЕТ: ${bestOpportunity.signal.direction} по ${bestOpportunity.coin}`);
         bestReasoning.forEach(r => console.log(`   • ${r}`));
 
-        // Расчёт размера позиции с риск-менеджментом
         const riskAmount = globalState.balance * globalState.maxRiskPerTrade;
         const price = bestOpportunity.currentPrice;
         const stopDistance = bestOpportunity.signal.direction === 'LONG' 
@@ -534,10 +609,10 @@ function printStats() {
           : bestOpportunity.signal.stopLoss - price;
         
         const size = riskAmount / stopDistance;
-        const finalSize = Math.max(0.001, size); // минимальный размер
+        const finalSize = Math.max(0.001, size);
 
         console.log(`\n🟢 ВХОД: ${bestOpportunity.signal.direction} ${finalSize.toFixed(6)} ${bestOpportunity.coin} с плечом ${bestOpportunity.signal.leverage}x`);
-        openFuturesTrade(
+        await openFuturesTrade(
           bestOpportunity.coin,
           bestOpportunity.signal.direction,
           bestOpportunity.signal.leverage,
@@ -550,7 +625,6 @@ function printStats() {
         console.log(`\n⚪ Вася 3000 не видит возможностей — отдыхаем...`);
       }
 
-      // Обновляем статистику
       globalState.stats.totalProfit = globalState.balance - 100;
       if (globalState.balance > globalState.stats.peakBalance) {
         globalState.stats.peakBalance = globalState.balance;
@@ -587,5 +661,5 @@ global.balance = () => globalState.balance;
 global.stats = () => globalState.stats;
 global.history = () => globalState.history;
 
-console.log('\n✅ Трейдинг Бот Вася 3000 Уникальный (Фьючерсы) запущен!');
-console.log('Философия + риск-менеджмент + плечо = прибыль.');
+console.log('\n✅ Трейдинг Бот Вася 3000 Уникальный (Реальная торговля) запущен!');
+console.log('API-ключ: CryptoPhilosopherBot — всё готово к заработку.');
