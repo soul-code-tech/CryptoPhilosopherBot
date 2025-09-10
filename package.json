@@ -1,5 +1,5 @@
 {
-  "name": "Vasya3000-Futures",
+  "name": "CryptoPhilosopherBot-Futures",
   "version": "1.0.0",
   "description": "Трейдинг Бот Вася 3000 Уникальный — фьючерсы с философской логикой",
   "main": "server.js",
@@ -9,6 +9,7 @@
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5",
-    "axios": "^1.6.0"
+    "axios": "^1.6.0",
+    "crypto-js": "^4.2.0"
   }
 }
