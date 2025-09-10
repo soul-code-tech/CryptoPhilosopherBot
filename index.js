@@ -1,5 +1,4 @@
 const axios = require('axios');
-const CryptoJS = require('crypto-js');
 
 // ==========================
 // ГЛОБАЛЬНОЕ СОСТОЯНИЕ — ФИЛОСОФ РЫНКА PRO (BINGX ВЕРСИЯ)
@@ -74,14 +73,22 @@ async function getFearAndGreedIndex() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение текущих цен с BingX
+// ФУНКЦИЯ: Получение текущих цен с BingX — С ЗАЩИТОЙ
 // ==========================
 async function getCurrentPrices() {
   try {
     const response = await axios.get('https://open-api.bingx.com/openApi/spot/v1/ticker/price', { timeout: 10000 });
 
+    // 🔒 ЗАЩИТА: проверяем структуру ответа
+    if (!response.data || !response.data.data || !Array.isArray(response.data.data)) {
+      console.error('⚠️ Некорректный ответ от BingX при получении цен:', response.data);
+      return {};
+    }
+
     const prices = {};
     for (const ticker of response.data.data) {
+      if (!ticker.symbol || !ticker.price) continue; // защита от битых данных
+
       const coinSymbol = ticker.symbol.replace('-USDT', '').toLowerCase();
       let coinName = '';
       switch(coinSymbol) {
@@ -95,10 +102,9 @@ async function getCurrentPrices() {
         case 'dot': coinName = 'polkadot'; break;
         case 'link': coinName = 'chainlink'; break;
         case 'matic': coinName = 'matic-network'; break;
+        default: continue;
       }
-      if (coinName) {
-        prices[coinName] = parseFloat(ticker.price);
-      }
+      prices[coinName] = parseFloat(ticker.price);
     }
     return prices;
   } catch (error) {
@@ -108,11 +114,26 @@ async function getCurrentPrices() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение исторических свечей с BingX
+// ФУНКЦИЯ: Получение исторических свечей с BingX — С ЗАЩИТОЙ
 // ==========================
 async function getBingXHistory(symbol, interval = '1h', limit = 50) {
   try {
-    const bingxSymbol = symbol.toUpperCase() + '-USDT';
+    // Маппинг названий монет → символы BingX
+    const symbolMap = {
+      'bitcoin': 'BTC',
+      'ethereum': 'ETH',
+      'binancecoin': 'BNB',
+      'solana': 'SOL',
+      'ripple': 'XRP',
+      'dogecoin': 'DOGE',
+      'cardano': 'ADA',
+      'polkadot': 'DOT',
+      'chainlink': 'LINK',
+      'matic-network': 'MATIC'
+    };
+
+    const bingxSymbol = (symbolMap[symbol] || symbol.toUpperCase()) + '-USDT';
+
     const response = await axios.get('https://open-api.bingx.com/openApi/spot/v1/market/kline', {
       params: {
         symbol: bingxSymbol,
@@ -122,10 +143,17 @@ async function getBingXHistory(symbol, interval = '1h', limit = 50) {
       timeout: 10000
     });
 
+    // 🔒 ЗАЩИТА: проверяем структуру ответа
+    if (!response.data || !response.data.data || !Array.isArray(response.data.data)) {
+      console.error(`⚠️ Некорректный ответ от BingX для ${symbol}:`, response.data);
+      return [];
+    }
+
     return response.data.data.map(candle => ({
       price: parseFloat(candle.close),
       time: candle.time
     }));
+
   } catch (error) {
     console.error(`❌ Ошибка получения истории для ${symbol} с BingX:`, error.message);
     return [];
@@ -381,7 +409,7 @@ function printStats() {
 // ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
 // ==========================
 (async () => {
-  console.log('🤖 ЗАПУСК БОТА v4.1 — ФИЛОСОФ РЫНКА PRO (ЦЕНЫ С BINGX)');
+  console.log('🤖 ЗАПУСК БОТА v4.2 — ФИЛОСОФ РЫНКА PRO (BINGX ИСПРАВЛЕННАЯ ВЕРСИЯ)');
   console.log('📌 deposit(сумма) — пополнить баланс в REPL');
   console.log('📈 LONG с целями, стопами, прогрессом до выхода');
 
@@ -415,8 +443,8 @@ function printStats() {
           bestReasoning = analysis.reasoning;
         }
 
-        // ⏱️ ЗАДЕРЖКА МЕЖДУ ЗАПРОСАМИ — КЛЮЧ К УСПЕХУ
-        await new Promise(r => setTimeout(r, 600));
+        // ⏱️ УВЕЛИЧЕННАЯ ЗАДЕРЖКА — 800 мс, чтобы избежать 429
+        await new Promise(r => setTimeout(r, 800));
       }
 
       if (bestOpportunity && globalState.balance > 1) {
@@ -466,5 +494,5 @@ global.balance = () => globalState.balance;
 global.stats = () => globalState.stats;
 global.history = () => globalState.history;
 
-console.log('\n✅ Бот v4.1 "Философ Рынка PRO" запущен!');
+console.log('\n✅ Бот v4.2 "Философ Рынка PRO" запущен!');
 console.log('Он думает, а не следует. Он чувствует, а не считает.');
