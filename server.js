@@ -17,7 +17,7 @@ app.get('/api/state', (req, res) => {
     positions: bot.globalState.positions,
     stats: bot.globalState.stats,
     history: bot.globalState.history.slice(-50),
-    platform: 'BingX Pro Trader'
+    platform: 'BingX Futures'
   });
 });
 
@@ -41,5 +41,5 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  console.log('Твой профессиональный трейдерский бот работает!');
+  console.log('Твой фьючерсный трейдинг бот работает!');
 });
