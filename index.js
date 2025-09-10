@@ -1,7 +1,7 @@
 const axios = require('axios');
 
 // ==========================
-// ГЛОБАЛЬНОЕ СОСТОЯНИЕ — ФИЛОСОФ РЫНКА PRO (BINGX ВЕРСИЯ)
+// ГЛОБАЛЬНОЕ СОСТОЯНИЕ — ПРОФЕССИОНАЛЬНЫЙ ТРЕЙДЕРСКИЙ БОТ (BINGX ВЕРСИЯ)
 // ==========================
 let globalState = {
   balance: 10,
@@ -87,7 +87,7 @@ async function getCurrentPrices() {
 
     const prices = {};
     for (const ticker of response.data.data) {
-      if (!ticker.symbol || !ticker.price) continue; // защита от битых данных
+      if (!ticker.symbol || !ticker.price) continue;
 
       const coinSymbol = ticker.symbol.replace('-USDT', '').toLowerCase();
       let coinName = '';
@@ -114,11 +114,10 @@ async function getCurrentPrices() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение исторических свечей с BingX — С ЗАЩИТОЙ
+// ФУНКЦИЯ: Получение исторических свечей с BingX — ИСПРАВЛЕННАЯ
 // ==========================
 async function getBingXHistory(symbol, interval = '1h', limit = 50) {
   try {
-    // Маппинг названий монет → символы BingX
     const symbolMap = {
       'bitcoin': 'BTC',
       'ethereum': 'ETH',
@@ -132,7 +131,8 @@ async function getBingXHistory(symbol, interval = '1h', limit = 50) {
       'matic-network': 'MATIC'
     };
 
-    const bingxSymbol = (symbolMap[symbol] || symbol.toUpperCase()) + '-USDT';
+    const baseSymbol = symbolMap[symbol] || symbol.toUpperCase().replace('-NETWORK', '').replace('COIN', '');
+    const bingxSymbol = baseSymbol + '-USDT';
 
     const response = await axios.get('https://open-api.bingx.com/openApi/spot/v1/market/kline', {
       params: {
@@ -143,7 +143,6 @@ async function getBingXHistory(symbol, interval = '1h', limit = 50) {
       timeout: 10000
     });
 
-    // 🔒 ЗАЩИТА: проверяем структуру ответа
     if (!response.data || !response.data.data || !Array.isArray(response.data.data)) {
       console.error(`⚠️ Некорректный ответ от BingX для ${symbol}:`, response.data);
       return [];
@@ -161,7 +160,7 @@ async function getBingXHistory(symbol, interval = '1h', limit = 50) {
 }
 
 // ==========================
-// ФУНКЦИЯ: Расширенный анализ — с философией рынка
+// ФУНКЦИЯ: Профессиональный трейдерский анализ — с философией рынка (логика НЕ ИЗМЕНЕНА)
 // ==========================
 function analyzeCoinWithWisdom(candles, coinName, currentFearIndex) {
   if (candles.length < 10) return null;
@@ -229,8 +228,8 @@ function analyzeCoinWithWisdom(candles, coinName, currentFearIndex) {
     shouldSell: wisdom.shouldSell,
     positionSizeFactor: wisdom.positionSizeFactor,
     reasoning: wisdom.reasoning,
-    trendProbability,
-    expectedReturn,
+    trendProbability,           // ← Вероятность тренда (0.0 - 1.0)
+    expectedReturn,             // ← Ожидаемая доходность
     isBuyZone,
     isSellZone,
     fearIndex: currentFearIndex
@@ -268,7 +267,8 @@ function openDemoTrade(coin, action, size, price, fees, targetProfitPercent = 0.
       timestamp: new Date().toLocaleString(),
       balanceBefore: globalState.balance + cost + fee,
       balanceAfter: globalState.balance,
-      status: 'OPEN'
+      status: 'OPEN',
+      trendProbability: 0.5 // будет обновлено при анализе
     };
 
     globalState.history.push(trade);
@@ -364,7 +364,7 @@ async function checkOpenPositions(currentPrices) {
 }
 
 // ==========================
-// ФУНКЦИЯ: Показ прогресса открытых позиций
+// ФУНКЦИЯ: Показ прогресса открытых позиций — С ВЕРОЯТНОСТЬЮ УСПЕХА
 // ==========================
 function showOpenPositionsProgress(currentPrices) {
   console.log(`\n📊 ОТКРЫТЫЕ ПОЗИЦИИ — ПРОГРЕСС:`);
@@ -380,10 +380,17 @@ function showOpenPositionsProgress(currentPrices) {
     const progressToTarget = (currentPrice - openTrade.entryPrice) / (openTrade.targetPrice - openTrade.entryPrice) * 100;
     const distanceToTarget = ((openTrade.targetPrice - currentPrice) / currentPrice) * 100;
 
+    // 🔥 РАСЧЁТ ВЕРОЯТНОСТИ УСПЕШНОГО ЗАВЕРШЕНИЯ
+    let successProbability = 50; // базовая
+    if (progressToTarget > 0) successProbability += progressToTarget * 0.5;
+    if (distanceToTarget < 0) successProbability += 20; // уже в плюсе
+    successProbability = Math.min(95, Math.max(5, successProbability));
+
     console.log(`\n📈 ${coin.name}:`);
     console.log(`   Вход: $${openTrade.entryPrice.toFixed(2)} | Текущая: $${currentPrice.toFixed(2)}`);
     console.log(`   🎯 Цель: $${openTrade.targetPrice.toFixed(2)} (${distanceToTarget > 0 ? '+' : ''}${distanceToTarget.toFixed(2)}% до цели)`);
     console.log(`   📊 Прогресс: ${Math.min(100, Math.max(0, progressToTarget)).toFixed(1)}%`);
+    console.log(`   🎲 Вероятность успеха: ${successProbability.toFixed(0)}%`); // ← НОВЫЙ ИНДИКАТОР!
     console.log(`   🛑 Стоп: $${openTrade.stopLossPrice.toFixed(2)}`);
 
     hasOpen = true;
@@ -409,13 +416,13 @@ function printStats() {
 // ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
 // ==========================
 (async () => {
-  console.log('🤖 ЗАПУСК БОТА v4.2 — ФИЛОСОФ РЫНКА PRO (BINGX ИСПРАВЛЕННАЯ ВЕРСИЯ)');
+  console.log('🤖 ЗАПУСК БОТА v5.0 — ПРОФЕССИОНАЛЬНЫЙ ТРЕЙДЕРСКИЙ АНАЛИЗ (BINGX)');
   console.log('📌 deposit(сумма) — пополнить баланс в REPL');
-  console.log('📈 LONG с целями, стопами, прогрессом до выхода');
+  console.log('📈 LONG с целями, стопами, прогрессом и вероятностью успеха');
 
   while (globalState.isRunning) {
     try {
-      console.log(`\n[${new Date().toLocaleTimeString()}] === ФИЛОСОФСКИЙ АНАЛИЗ ===`);
+      console.log(`\n[${new Date().toLocaleTimeString()}] === ПРОФЕССИОНАЛЬНЫЙ ТРЕЙДЕРСКИЙ АНАЛИЗ ===`);
 
       const fearIndex = await getFearAndGreedIndex();
       console.log(`😱 Индекс страха и жадности: ${fearIndex}`);
@@ -443,12 +450,11 @@ function printStats() {
           bestReasoning = analysis.reasoning;
         }
 
-        // ⏱️ УВЕЛИЧЕННАЯ ЗАДЕРЖКА — 800 мс, чтобы избежать 429
         await new Promise(r => setTimeout(r, 800));
       }
 
       if (bestOpportunity && globalState.balance > 1) {
-        console.log(`\n💎 ФИЛОСОФСКИЙ ВЫВОД: ${bestOpportunity.coin}`);
+        console.log(`\n💎 ПРОФЕССИОНАЛЬНЫЙ ВЫВОД: ${bestOpportunity.coin}`);
         bestReasoning.forEach(r => console.log(`   • ${r}`));
 
         const baseSize = (globalState.balance * 0.2) / bestOpportunity.currentPrice;
@@ -459,7 +465,7 @@ function printStats() {
           openDemoTrade(bestOpportunity.coin, 'BUY', finalSize, bestOpportunity.currentPrice, globalState.takerFee, 0.01);
         }
       } else {
-        console.log(`\n⚪ Нет философски обоснованных возможностей — ждём...`);
+        console.log(`\n⚪ Нет профессионально обоснованных возможностей — ждём...`);
       }
 
       if (Date.now() % 60000 < 10000) {
@@ -494,5 +500,5 @@ global.balance = () => globalState.balance;
 global.stats = () => globalState.stats;
 global.history = () => globalState.history;
 
-console.log('\n✅ Бот v4.2 "Философ Рынка PRO" запущен!');
-console.log('Он думает, а не следует. Он чувствует, а не считает.');
+console.log('\n✅ Бот v5.0 "Профессиональный Трейдерский Аналитик" запущен!');
+console.log('Сохраняет философскую логику, но говорит на языке трейдеров.');
