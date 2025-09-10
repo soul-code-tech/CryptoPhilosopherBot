@@ -56,7 +56,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Функция получения реального баланса
+// Функция получения реального баланса — ИСПРАВЛЕНА!
 async function getBingXRealBalance() {
   const BINGX_API_KEY = process.env.BINGX_API_KEY;
   const BINGX_SECRET_KEY = process.env.BINGX_SECRET_KEY;
@@ -84,8 +84,12 @@ async function getBingXRealBalance() {
     });
 
     if (response.data.code === 0 && response.data.data) {
-      const usdtAsset = response.data.data.find(asset => asset.asset === 'USDT');
-      if (usdtAsset) {
+      // 🔥 ИСПРАВЛЕНО: BingX может вернуть объект, а не массив
+      const assets = response.data.data.assets || response.data.data;
+      const assetsArray = Array.isArray(assets) ? assets : Object.values(assets);
+      
+      const usdtAsset = assetsArray.find(asset => asset.asset === 'USDT');
+      if (usdtAsset && usdtAsset.walletBalance) {
         return parseFloat(usdtAsset.walletBalance);
       }
     }
