@@ -1,10 +1,10 @@
 const axios = require('axios');
 
 // ==========================
-// ГЛОБАЛЬНОЕ СОСТОЯНИЕ — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ
+// ГЛОБАЛЬНОЕ СОСТОЯНИЕ — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (ФЬЮЧЕРСЫ)
 // ==========================
 let globalState = {
-  balance: 10,
+  balance: 100, // начальный капитал для фьючерсов
   positions: {},
   history: [],
   stats: {
@@ -14,16 +14,19 @@ let globalState = {
     winRate: 0,
     totalProfit: 0,
     maxDrawdown: 0,
-    peakBalance: 10
+    peakBalance: 100,
+    maxLeverageUsed: 1
   },
   marketMemory: {
-    lastBuyPrices: {},
-    consecutiveBuys: {},
+    lastTrades: {},
+    consecutiveTrades: {},
+    volatilityHistory: {},
     fearSentimentHistory: []
   },
   isRunning: true,
-  makerFee: 0.001,
-  takerFee: 0.001,
+  takerFee: 0.0005, // 0.05% для фьючерсов
+  maxRiskPerTrade: 0.02, // не более 2% от депозита
+  maxLeverage: 10, // макс плечо
   watchlist: [
     { symbol: 'BTC', name: 'bitcoin' },
     { symbol: 'ETH', name: 'ethereum' },
@@ -33,15 +36,16 @@ let globalState = {
     { symbol: 'DOGE', name: 'dogecoin' },
     { symbol: 'ADA', name: 'cardano' },
     { symbol: 'DOT', name: 'polkadot' },
-    { symbol: 'LINK', name: 'chainlink' },
-    { symbol: 'MATIC', name: 'matic-network' }
+    { symbol: 'LINK', name: 'chainlink' }
+    // MATIC УДАЛЁН — как ты просил
   ]
 };
 
 globalState.watchlist.forEach(coin => {
-  globalState.positions[coin.name] = 0;
-  globalState.marketMemory.lastBuyPrices[coin.name] = [];
-  globalState.marketMemory.consecutiveBuys[coin.name] = 0;
+  globalState.positions[coin.name] = null; // null = нет позиции, { side: 'LONG'/'SHORT', size, entryPrice, ... }
+  globalState.marketMemory.lastTrades[coin.name] = [];
+  globalState.marketMemory.consecutiveTrades[coin.name] = 0;
+  globalState.marketMemory.volatilityHistory[coin.name] = [];
 });
 
 // ==========================
@@ -73,28 +77,16 @@ async function getFearAndGreedIndex() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение текущих цен с BingX — С МАКСИМАЛЬНОЙ ЗАЩИТОЙ
+// ФУНКЦИЯ: Получение текущих цен фьючерсов с BingX
 // ==========================
-async function getCurrentPrices() {
+async function getCurrentFuturesPrices() {
   try {
-    console.log('📡 Запрашиваю текущие цены с BingX...');
+    console.log('📡 Запрашиваю текущие цены фьючерсов с BingX...');
 
-    const response = await axios.get('https://open-api.bingx.com/openApi/spot/v1/ticker/price', {
-      timeout: 15000
-    });
+    const response = await axios.get('https://open-api.bingx.com/openApi/swap/v2/quote/price', { timeout: 15000 });
 
-    if (!response || !response.data) {
-      console.error('❌ BingX не вернул данные при запросе цен');
-      return {};
-    }
-
-    if (response.data.code && response.data.code !== 0) {
-      console.error('❌ Ошибка BingX при запросе цен:', response.data.msg);
-      return {};
-    }
-
-    if (!Array.isArray(response.data.data)) {
-      console.error('❌ BingX вернул не массив при запросе цен:', response.data);
+    if (!response.data || !Array.isArray(response.data.data)) {
+      console.error('❌ BingX не вернул массив данных для фьючерсов');
       return {};
     }
 
@@ -102,7 +94,7 @@ async function getCurrentPrices() {
     for (const ticker of response.data.data) {
       if (!ticker.symbol || !ticker.price) continue;
 
-      const coinSymbol = ticker.symbol.replace('-USDT', '').toLowerCase();
+      const coinSymbol = ticker.symbol.replace('USDT', '').toLowerCase();
       let coinName = '';
       switch(coinSymbol) {
         case 'btc': coinName = 'bitcoin'; break;
@@ -114,49 +106,45 @@ async function getCurrentPrices() {
         case 'ada': coinName = 'cardano'; break;
         case 'dot': coinName = 'polkadot'; break;
         case 'link': coinName = 'chainlink'; break;
-        case 'matic': coinName = 'matic-network'; break;
         default: continue;
       }
       prices[coinName] = parseFloat(ticker.price);
     }
 
-    console.log('✅ Цены получены успешно');
+    console.log('✅ Цены фьючерсов получены успешно');
     return prices;
   } catch (error) {
-    console.error('❌ Ошибка получения цен с BingX:', error.message);
+    console.error('❌ Ошибка получения цен фьючерсов с BingX:', error.message);
     return {};
   }
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение исторических свечей с BingX — ЖЁСТКИЙ МАППИНГ, БЕЗ ОШИБОК
+// ФУНКЦИЯ: Получение исторических свечей фьючерсов с BingX
 // ==========================
-async function getBingXHistory(symbol, interval = '1h', limit = 50) {
+async function getBingXFuturesHistory(symbol, interval = '1h', limit = 50) {
   try {
-    // 🔥 ЖЁСТКИЙ МАППИНГ — ТОЛЬКО ИЗВЕСТНЫЕ СИМВОЛЫ
     const symbolMap = {
-      'bitcoin': 'BTC',
-      'ethereum': 'ETH',
-      'binancecoin': 'BNB',
-      'solana': 'SOL',
-      'ripple': 'XRP',
-      'dogecoin': 'DOGE',
-      'cardano': 'ADA',
-      'polkadot': 'DOT',
-      'chainlink': 'LINK',
-      'matic-network': 'MATIC'
+      'bitcoin': 'BTC-USDT',
+      'ethereum': 'ETH-USDT',
+      'binancecoin': 'BNB-USDT',
+      'solana': 'SOL-USDT',
+      'ripple': 'XRP-USDT',
+      'dogecoin': 'DOGE-USDT',
+      'cardano': 'ADA-USDT',
+      'polkadot': 'DOT-USDT',
+      'chainlink': 'LINK-USDT'
     };
 
-    const baseSymbol = symbolMap[symbol];
-    if (!baseSymbol) {
-      console.error(`❌ Неизвестная монета в запросе истории: ${symbol}`);
+    const bingxSymbol = symbolMap[symbol];
+    if (!bingxSymbol) {
+      console.error(`❌ Неизвестная монета: ${symbol}`);
       return [];
     }
 
-    const bingxSymbol = `${baseSymbol}-USDT`;
-    console.log(`📡 Запрашиваю историю для: ${bingxSymbol}`);
+    console.log(`📡 Запрашиваю историю фьючерсов для: ${bingxSymbol}`);
 
-    const response = await axios.get('https://open-api.bingx.com/openApi/spot/v1/market/kline', {
+    const response = await axios.get('https://open-api.bingx.com/openApi/swap/v2/quote/klines', {
       params: {
         symbol: bingxSymbol,
         interval: interval,
@@ -165,24 +153,16 @@ async function getBingXHistory(symbol, interval = '1h', limit = 50) {
       timeout: 15000
     });
 
-    // Проверка структуры ответа
-    if (!response || !response.data) {
-      console.error(`❌ BingX не вернул данные для ${symbol}`);
-      return [];
-    }
-
-    if (response.data.code && response.data.code !== 0) {
-      console.error(`❌ Ошибка BingX для ${symbol}:`, response.data.msg);
-      return [];
-    }
-
-    if (!Array.isArray(response.data.data)) {
+    if (!response.data || !Array.isArray(response.data.data)) {
       console.error(`❌ BingX вернул не массив для ${symbol}:`, response.data);
       return [];
     }
 
     const candles = response.data.data.map(candle => ({
       price: parseFloat(candle.close),
+      high: parseFloat(candle.high),
+      low: parseFloat(candle.low),
+      volume: parseFloat(candle.volume),
       time: candle.time
     }));
 
@@ -196,207 +176,238 @@ async function getBingXHistory(symbol, interval = '1h', limit = 50) {
 }
 
 // ==========================
-// ФУНКЦИЯ: Анализ — с философией рынка (логика НЕ ИЗМЕНЕНА)
+// ФУНКЦИЯ: УНИКАЛЬНЫЙ ФИЛОСОФСКИЙ АНАЛИЗ (ФЬЮЧЕРСЫ)
 // ==========================
-function analyzeCoinWithWisdom(candles, coinName, currentFearIndex) {
-  if (candles.length < 10) {
-    console.log(`⚠️ Недостаточно данных для анализа ${coinName} (требуется 10, есть ${candles.length})`);
-    return null;
-  }
+function analyzeFuturesWithWisdom(candles, coinName, currentFearIndex) {
+  if (candles.length < 10) return null;
 
   const prices = candles.map(c => c.price);
   const currentPrice = prices[prices.length - 1];
-  const sma10 = prices.slice(-10).reduce((a, b) => a + b, 0) / 10;
-  const sma30 = prices.slice(-30).reduce((a, b) => a + b, 0) / 30;
-  const mean = prices.reduce((a, b) => a + b, 0) / prices.length;
-  const variance = prices.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / prices.length;
-  const stdDev = Math.sqrt(variance);
+  const sma20 = prices.slice(-20).reduce((a, b) => a + b, 0) / 20;
+  const atr = calculateATR(candles.slice(-14)); // волатильность
+  const rsi = calculateRSI(prices.slice(-14));
 
-  const isExtremeFear = currentFearIndex < 25;
-  const isExtremeGreed = currentFearIndex > 75;
+  // 🌀 Закон сохранения энергии — рынок не может бесконечно двигаться в одну сторону
+  const isOverextendedUp = currentPrice > sma20 * 1.05;
+  const isOverextendedDown = currentPrice < sma20 * 0.95;
 
-  let upCount = 0;
-  for (let i = prices.length - 6; i < prices.length - 1; i++) {
-    if (prices[i + 1] > prices[i]) upCount++;
-  }
-  const trendProbability = upCount / 5;
-  const expectedReturn = (currentPrice - sma30) / sma30;
+  // 🦋 Эффект бабочки — резкий рост волатильности = сигнал
+  const volatility = atr / currentPrice;
+  const isHighVolatility = volatility > 0.03;
 
-  const buyZone = sma30 - stdDev * 0.5;
-  const sellZone = sma30 + stdDev * 0.5;
-  const isBuyZone = currentPrice <= buyZone;
-  const isSellZone = currentPrice >= sellZone;
+  // 🧭 Компас страха
+  const isExtremeFear = currentFearIndex < 20;
+  const isExtremeGreed = currentFearIndex > 80;
 
-  let wisdom = {
-    shouldBuy: false,
-    shouldSell: false,
-    positionSizeFactor: 1.0,
-    reasoning: []
+  let signal = {
+    direction: null, // 'LONG' или 'SHORT'
+    confidence: 0.5, // 0.0 - 1.0
+    leverage: 1,
+    reasoning: [],
+    stopLoss: null,
+    takeProfit: null
   };
 
-  if (isExtremeFear && currentPrice > sma30) {
-    wisdom.shouldBuy = true;
-    wisdom.reasoning.push("☯️ Инь-Ян: страх на максимуме + цена выше средней → идеальная точка входа");
+  // 🚀 LONG: страх + перепроданность + импульс
+  if (isExtremeFear && rsi < 30 && !isOverextendedDown) {
+    signal.direction = 'LONG';
+    signal.confidence += 0.3;
+    signal.reasoning.push("☯️ Инь-Ян: страх + перепроданность → идеальный вход в LONG");
   }
 
-  if (trendProbability > 0.7 && currentPrice > sma10) {
-    wisdom.shouldBuy = true;
-    wisdom.reasoning.push("🚀 Инерция: сильный импульс + цена выше SMA10 → тренд продолжится");
+  // 📉 SHORT: жадность + перекупленность + замедление
+  if (isExtremeGreed && rsi > 70 && !isOverextendedUp) {
+    signal.direction = 'SHORT';
+    signal.confidence += 0.3;
+    signal.reasoning.push("🔥 Перегрев: жадность + перекупленность → вход в SHORT");
   }
 
-  if (isExtremeGreed && currentPrice >= sellZone) {
-    wisdom.shouldSell = true;
-    wisdom.reasoning.push("🔥 Перегрев: жадность + цена в зоне продаж → фиксируем прибыль");
+  // 🦋 Эффект бабочки — волатильность как триггер
+  if (isHighVolatility) {
+    signal.confidence += 0.2;
+    signal.reasoning.push("🦋 Эффект бабочки: резкий скачок волатильности → ускорение тренда");
   }
 
-  const consecutiveBuys = globalState.marketMemory.consecutiveBuys[coinName] || 0;
-  if (consecutiveBuys >= 3) {
-    wisdom.positionSizeFactor = 0.5;
-    wisdom.reasoning.push("🦎 Адаптация: 3+ покупки подряд → снижаем риск");
+  // 🧱 Архитектура риска — снижаем плечо после серии сделок
+  const consecutive = globalState.marketMemory.consecutiveTrades[coinName] || 0;
+  if (consecutive >= 2) {
+    signal.leverage = Math.max(1, globalState.maxLeverage * 0.5);
+    signal.reasoning.push("🧱 Архитектура риска: 2+ сделки → снижаем плечо до " + signal.leverage + "x");
+  } else {
+    signal.leverage = globalState.maxLeverage;
   }
 
-  if (stdDev / mean > 0.05) {
-    wisdom.positionSizeFactor *= 0.7;
-    wisdom.reasoning.push("🌀 Неопределённость: высокая волатильность → снижаем позицию");
+  // Устанавливаем стоп-лосс и тейк-профит
+  if (signal.direction === 'LONG') {
+    signal.stopLoss = currentPrice * 0.98; // 2% стоп
+    signal.takeProfit = currentPrice * 1.03; // 3% тейк
+  } else if (signal.direction === 'SHORT') {
+    signal.stopLoss = currentPrice * 1.02; // 2% стоп
+    signal.takeProfit = currentPrice * 0.97; // 3% тейк
   }
+
+  // 🌊 Цунами прибыли — динамический выход
+  signal.reasoning.push("🌊 Цунами прибыли: 50% позиции закрываем на +3%, остаток в трейлинг-стоп");
 
   return {
     coin: coinName,
     currentPrice,
-    shouldBuy: wisdom.shouldBuy,
-    shouldSell: wisdom.shouldSell,
-    positionSizeFactor: wisdom.positionSizeFactor,
-    reasoning: wisdom.reasoning,
-    trendProbability,
-    expectedReturn,
-    isBuyZone,
-    isSellZone,
+    signal,
+    rsi,
+    volatility,
+    sma20,
     fearIndex: currentFearIndex
   };
 }
 
+// Вспомогательные функции
+function calculateATR(candles) {
+  let trSum = 0;
+  for (let i = 1; i < candles.length; i++) {
+    const tr = Math.max(
+      candles[i].high - candles[i].low,
+      Math.abs(candles[i].high - candles[i-1].price),
+      Math.abs(candles[i].low - candles[i-1].price)
+    );
+    trSum += tr;
+  }
+  return trSum / candles.length;
+}
+
+function calculateRSI(prices) {
+  if (prices.length < 2) return 50;
+  let gains = 0, losses = 0, count = 0;
+  for (let i = 1; i < prices.length; i++) {
+    const diff = prices[i] - prices[i-1];
+    if (diff > 0) gains += diff;
+    else losses += Math.abs(diff);
+    count++;
+  }
+  const avgGain = gains / count;
+  const avgLoss = losses / count;
+  const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
+}
+
 // ==========================
-// ФУНКЦИЯ: Открытие демо-позиции
+// ФУНКЦИЯ: Открытие фьючерсной позиции (ДЕМО)
 // ==========================
-function openDemoTrade(coin, action, size, price, fees, targetProfitPercent = 0.01) {
-  if (action !== 'BUY' && action !== 'SELL') return false;
+function openFuturesTrade(coin, direction, leverage, size, price, stopLoss, takeProfit) {
+  const cost = (size * price) / leverage; // маржинальная стоимость
+  const fee = size * price * globalState.takerFee;
 
-  const cost = size * price;
-  const fee = cost * fees;
-
-  if (action === 'BUY') {
-    if (globalState.balance < cost + fee) {
-      console.log(`❌ Недостаточно средств для покупки ${coin}: нужно $${(cost + fee).toFixed(2)}`);
-      return false;
-    }
-
-    globalState.balance -= (cost + fee);
-    globalState.positions[coin] += size;
-    globalState.marketMemory.lastBuyPrices[coin].push(price);
-    globalState.marketMemory.consecutiveBuys[coin] = (globalState.marketMemory.consecutiveBuys[coin] || 0) + 1;
-
-    const trade = {
-      coin,
-      type: 'LONG',
-      size,
-      entryPrice: price,
-      targetPrice: price * (1 + targetProfitPercent),
-      stopLossPrice: price * 0.995,
-      fee,
-      timestamp: new Date().toLocaleString(),
-      balanceBefore: globalState.balance + cost + fee,
-      balanceAfter: globalState.balance,
-      status: 'OPEN'
-    };
-
-    globalState.history.push(trade);
-    globalState.stats.totalTrades++;
-
-    console.log(`✅ ОТКРЫТ ЛОНГ: ${size.toFixed(6)} ${coin} по $${price.toFixed(2)}`);
-    console.log(`   🎯 Цель: $${trade.targetPrice.toFixed(2)} (+${targetProfitPercent * 100}%)`);
-    console.log(`   🛑 Стоп: $${trade.stopLossPrice.toFixed(2)} (-0.5%)`);
-    console.log(`   💸 Комиссия: $${fee.toFixed(4)}`);
-    return true;
+  if (cost + fee > globalState.balance * globalState.maxRiskPerTrade) {
+    console.log(`❌ Риск превышает ${globalState.maxRiskPerTrade * 100}% от депозита`);
+    return false;
   }
 
-  if (action === 'SELL' && globalState.positions[coin] >= size) {
-    const revenue = size * price;
-    const fee = revenue * fees;
-
-    globalState.balance += (revenue - fee);
-    globalState.positions[coin] -= size;
-    globalState.marketMemory.consecutiveBuys[coin] = 0;
-
-    const openTrade = globalState.history.find(t => t.coin === coin && t.status === 'OPEN');
-    if (openTrade) {
-      openTrade.exitPrice = price;
-      openTrade.profitPercent = (price - openTrade.entryPrice) / openTrade.entryPrice;
-      openTrade.status = 'CLOSED';
-    }
-
-    const trade = {
-      coin,
-      type: 'SELL',
-      size,
-      price,
-      fee,
-      timestamp: new Date().toLocaleString(),
-      balanceBefore: globalState.balance - revenue + fee,
-      balanceAfter: globalState.balance
-    };
-
-    globalState.history.push(trade);
-    globalState.stats.totalTrades++;
-
-    if (trade.balanceAfter > trade.balanceBefore) {
-      globalState.stats.profitableTrades++;
-    } else {
-      globalState.stats.losingTrades++;
-    }
-
-    globalState.stats.winRate = globalState.stats.totalTrades > 0
-      ? (globalState.stats.profitableTrades / globalState.stats.totalTrades) * 100
-      : 0;
-
-    globalState.stats.totalProfit = globalState.balance - 10;
-    if (globalState.balance > globalState.stats.peakBalance) {
-      globalState.stats.peakBalance = globalState.balance;
-    }
-    globalState.stats.maxDrawdown = ((globalState.stats.peakBalance - globalState.balance) / globalState.stats.peakBalance) * 100;
-
-    console.log(`✅ ЗАКРЫТ ЛОНГ: ${size.toFixed(6)} ${coin} по $${price.toFixed(2)}`);
-    console.log(`   💰 Прибыль: ${(openTrade?.profitPercent * 100).toFixed(2)}%`);
-    console.log(`   💸 Комиссия: $${fee.toFixed(4)}`);
-    return true;
+  if (globalState.positions[coin]) {
+    console.log(`❌ Уже есть открытая позиция по ${coin}`);
+    return false;
   }
 
-  return false;
+  globalState.balance -= fee;
+  globalState.positions[coin] = {
+    side: direction,
+    size,
+    entryPrice: price,
+    leverage,
+    stopLoss,
+    takeProfit,
+    fee,
+    timestamp: new Date().toLocaleString(),
+    trailingStop: price * (direction === 'LONG' ? 0.99 : 1.01) // начальный трейлинг
+  };
+
+  const trade = {
+    coin,
+    type: direction,
+    size,
+    entryPrice: price,
+    leverage,
+    stopLoss,
+    takeProfit,
+    fee,
+    timestamp: new Date().toLocaleString(),
+    status: 'OPEN'
+  };
+
+  globalState.history.push(trade);
+  globalState.stats.totalTrades++;
+  globalState.marketMemory.consecutiveTrades[coin] = (globalState.marketMemory.consecutiveTrades[coin] || 0) + 1;
+  globalState.stats.maxLeverageUsed = Math.max(globalState.stats.maxLeverageUsed, leverage);
+
+  console.log(`✅ ОТКРЫТА ${direction} ПОЗИЦИЯ: ${size.toFixed(6)} ${coin} с плечом ${leverage}x`);
+  console.log(`   💰 Маржинальная стоимость: $${cost.toFixed(2)}`);
+  console.log(`   🎯 Тейк-профит: $${takeProfit.toFixed(2)} (+3%)`);
+  console.log(`   🛑 Стоп-лосс: $${stopLoss.toFixed(2)} (-2%)`);
+  console.log(`   💸 Комиссия: $${fee.toFixed(4)}`);
+
+  return true;
 }
 
 // ==========================
 // ФУНКЦИЯ: Проверка открытых позиций
 // ==========================
 async function checkOpenPositions(currentPrices) {
-  const fearIndex = await getFearAndGreedIndex();
-
   for (const coin of globalState.watchlist) {
-    const openTrade = globalState.history.find(t => t.coin === coin.name && t.status === 'OPEN');
-    if (!openTrade) continue;
+    const position = globalState.positions[coin.name];
+    if (!position) continue;
 
     const currentPrice = currentPrices[coin.name];
     if (!currentPrice) continue;
 
-    const profitPercent = (currentPrice - openTrade.entryPrice) / openTrade.entryPrice;
+    let shouldClose = false;
+    let reason = '';
 
-    if (currentPrice >= openTrade.targetPrice) {
-      console.log(`🎯 ДОСТИГНУТА ЦЕЛЬ +1% по ${coin.name} — фиксируем прибыль!`);
-      openDemoTrade(coin.name, 'SELL', globalState.positions[coin.name], currentPrice, globalState.takerFee);
-    } else if (fearIndex < 20 && profitPercent > 0.005) {
-      console.log(`😱 Страх <20 + прибыль → фиксируем по ${coin.name} (закон Инь-Ян)`);
-      openDemoTrade(coin.name, 'SELL', globalState.positions[coin.name], currentPrice, globalState.takerFee);
-    } else if (currentPrice <= openTrade.stopLossPrice) {
-      console.log(`🛑 Сработал стоп-лосс -0.5% по ${coin.name}`);
-      openDemoTrade(coin.name, 'SELL', globalState.positions[coin.name], currentPrice, globalState.takerFee);
+    // 🌊 Цунами прибыли: 50% при +3%
+    if (position.side === 'LONG' && currentPrice >= position.takeProfit) {
+      shouldClose = true;
+      reason = '🎯 Достигнут тейк-профит +3% — фиксируем 50% прибыли';
+    } else if (position.side === 'SHORT' && currentPrice <= position.takeProfit) {
+      shouldClose = true;
+      reason = '🎯 Достигнут тейк-профит +3% — фиксируем 50% прибыли';
+    }
+
+    // 🛑 Стоп-лосс
+    if (position.side === 'LONG' && currentPrice <= position.stopLoss) {
+      shouldClose = true;
+      reason = '🛑 Сработал стоп-лосс -2%';
+    } else if (position.side === 'SHORT' && currentPrice >= position.stopLoss) {
+      shouldClose = true;
+      reason = '🛑 Сработал стоп-лосс -2%';
+    }
+
+    if (shouldClose) {
+      console.log(`✅ ЗАКРЫТИЕ: ${reason} по ${coin.name}`);
+      // В демо-режиме просто закрываем
+      const trade = globalState.history.find(t => t.coin === coin.name && t.status === 'OPEN');
+      if (trade) {
+        trade.exitPrice = currentPrice;
+        trade.profitPercent = position.side === 'LONG' 
+          ? (currentPrice - trade.entryPrice) / trade.entryPrice 
+          : (trade.entryPrice - currentPrice) / trade.entryPrice;
+        trade.status = 'CLOSED';
+        
+        // Обновляем статистику
+        if (trade.profitPercent > 0) {
+          globalState.stats.profitableTrades++;
+          globalState.balance += (trade.size * trade.entryPrice * trade.profitPercent);
+        } else {
+          globalState.stats.losingTrades++;
+          globalState.balance += (trade.size * trade.entryPrice * trade.profitPercent); // убыток
+        }
+      }
+      
+      globalState.positions[coin.name] = null;
+      globalState.marketMemory.consecutiveTrades[coin.name] = 0;
+    } else {
+      // Обновляем трейлинг-стоп
+      if (position.side === 'LONG' && currentPrice > position.entryPrice * 1.01) {
+        position.trailingStop = Math.max(position.trailingStop, currentPrice * 0.99);
+      } else if (position.side === 'SHORT' && currentPrice < position.entryPrice * 0.99) {
+        position.trailingStop = Math.min(position.trailingStop, currentPrice * 1.01);
+      }
     }
   }
 }
@@ -409,26 +420,37 @@ function showOpenPositionsProgress(currentPrices) {
   let hasOpen = false;
 
   for (const coin of globalState.watchlist) {
-    const openTrade = globalState.history.find(t => t.coin === coin.name && t.status === 'OPEN');
-    if (!openTrade) continue;
+    const position = globalState.positions[coin.name];
+    if (!position) continue;
 
     const currentPrice = currentPrices[coin.name];
     if (!currentPrice) continue;
 
-    const progressToTarget = (currentPrice - openTrade.entryPrice) / (openTrade.targetPrice - openTrade.entryPrice) * 100;
-    const distanceToTarget = ((openTrade.targetPrice - currentPrice) / currentPrice) * 100;
+    let progress = 0;
+    let targetPrice = position.takeProfit;
+    let distanceToTarget = 0;
 
+    if (position.side === 'LONG') {
+      progress = (currentPrice - position.entryPrice) / (targetPrice - position.entryPrice) * 100;
+      distanceToTarget = ((targetPrice - currentPrice) / currentPrice) * 100;
+    } else {
+      progress = (position.entryPrice - currentPrice) / (position.entryPrice - targetPrice) * 100;
+      distanceToTarget = ((currentPrice - targetPrice) / currentPrice) * 100;
+    }
+
+    // 🎲 Расчёт вероятности успеха
     let successProbability = 50;
-    if (progressToTarget > 0) successProbability += progressToTarget * 0.5;
-    if (distanceToTarget < 0) successProbability += 20;
+    if (progress > 0) successProbability = 50 + progress * 0.5;
+    if (distanceToTarget < 0) successProbability += 20; // уже в плюсе
     successProbability = Math.min(95, Math.max(5, successProbability));
 
-    console.log(`\n📈 ${coin.name}:`);
-    console.log(`   Вход: $${openTrade.entryPrice.toFixed(2)} | Текущая: $${currentPrice.toFixed(2)}`);
-    console.log(`   🎯 Цель: $${openTrade.targetPrice.toFixed(2)} (${distanceToTarget > 0 ? '+' : ''}${distanceToTarget.toFixed(2)}% до цели)`);
-    console.log(`   📊 Прогресс: ${Math.min(100, Math.max(0, progressToTarget)).toFixed(1)}%`);
+    console.log(`\n📈 ${coin.name} ${position.side}:`);
+    console.log(`   Вход: $${position.entryPrice.toFixed(2)} | Текущая: $${currentPrice.toFixed(2)}`);
+    console.log(`   🎯 Цель: $${targetPrice.toFixed(2)} (${distanceToTarget > 0 ? '+' : ''}${distanceToTarget.toFixed(2)}% до цели)`);
+    console.log(`   📊 Прогресс: ${Math.min(100, Math.max(0, progress)).toFixed(1)}%`);
     console.log(`   🎲 Вероятность успеха: ${successProbability.toFixed(0)}%`);
-    console.log(`   🛑 Стоп: $${openTrade.stopLossPrice.toFixed(2)}`);
+    console.log(`   🛑 Стоп: $${position.stopLoss.toFixed(2)} | Трейлинг: $${position.trailingStop.toFixed(2)}`);
+    console.log(`   ⚖️ Плечо: ${position.leverage}x`);
 
     hasOpen = true;
   }
@@ -444,8 +466,9 @@ function printStats() {
   console.log(`\n📊 СТАТИСТИКА ТОРГОВЛИ:`);
   console.log(`   Сделок всего: ${s.totalTrades} (прибыльных: ${s.profitableTrades}, убыточных: ${s.losingTrades})`);
   console.log(`   Win Rate: ${s.winRate.toFixed(1)}%`);
-  console.log(`   Чистая прибыль: $${s.totalProfit.toFixed(2)} (${((s.totalProfit / 10) * 100).toFixed(1)}%)`);
+  console.log(`   Чистая прибыль: $${s.totalProfit.toFixed(2)} (${((s.totalProfit / 100) * 100).toFixed(1)}%)`);
   console.log(`   Макс. просадка: ${s.maxDrawdown.toFixed(1)}%`);
+  console.log(`   Макс. плечо: ${s.maxLeverageUsed}x`);
   console.log(`   Текущий баланс: $${globalState.balance.toFixed(2)}`);
 }
 
@@ -453,18 +476,18 @@ function printStats() {
 // ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
 // ==========================
 (async () => {
-  console.log('🤖 ЗАПУСК БОТА v6.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ');
-  console.log('📌 deposit(сумма) — пополнить баланс в REPL');
-  console.log('📈 Сохраняет философскую логику — выглядит как профессиональный трейдер');
+  console.log('🤖 ЗАПУСК БОТА v7.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (ФЬЮЧЕРСЫ С ПЛЕЧОМ)');
+  console.log('📌 deposit(сумма) — пополнить баланс');
+  console.log('📈 Торгует фьючерсами с риск-менеджментом и философской логикой');
 
   while (globalState.isRunning) {
     try {
-      console.log(`\n[${new Date().toLocaleTimeString()}] === АНАЛИЗ ОТ ВАСИ 3000 ===`);
+      console.log(`\n[${new Date().toLocaleTimeString()}] === АНАЛИЗ ОТ ВАСИ 3000 (ФЬЮЧЕРСЫ) ===`);
 
       const fearIndex = await getFearAndGreedIndex();
       console.log(`😱 Индекс страха и жадности: ${fearIndex}`);
 
-      const currentPrices = await getCurrentPrices();
+      const currentPrices = await getCurrentFuturesPrices();
       await checkOpenPositions(currentPrices);
 
       showOpenPositionsProgress(currentPrices);
@@ -473,65 +496,80 @@ function printStats() {
       let bestReasoning = [];
 
       for (const coin of globalState.watchlist) {
-        console.log(`\n🔍 Анализирую ${coin.name}...`);
+        console.log(`\n🔍 Анализирую фьючерс ${coin.name}...`);
 
-        const candles = await getBingXHistory(coin.name, '1h', 50);
+        const candles = await getBingXFuturesHistory(coin.name, '1h', 50);
         if (candles.length < 10) {
           console.log(`   ⚠️ Пропускаем ${coin.name} — недостаточно данных`);
-          await new Promise(r => setTimeout(r, 1000)); // Задержка даже при ошибке
+          await new Promise(r => setTimeout(r, 1200));
           continue;
         }
 
-        const analysis = analyzeCoinWithWisdom(candles, coin.name, fearIndex);
-        if (!analysis) {
-          await new Promise(r => setTimeout(r, 1000));
+        const analysis = analyzeFuturesWithWisdom(candles, coin.name, fearIndex);
+        if (!analysis || !analysis.signal.direction) {
+          await new Promise(r => setTimeout(r, 1200));
           continue;
         }
 
-        console.log(`   ✅ Анализ завершён для ${coin.name}`);
-        analysis.reasoning.forEach(r => console.log(`   • ${r}`));
+        console.log(`   ✅ Сигнал для ${coin.name}: ${analysis.signal.direction}`);
+        analysis.signal.reasoning.forEach(r => console.log(`   • ${r}`));
 
-        if (analysis.shouldBuy && !bestOpportunity) {
+        if (!bestOpportunity) {
           bestOpportunity = analysis;
-          bestReasoning = analysis.reasoning;
+          bestReasoning = analysis.signal.reasoning;
         }
 
-        // 🚀 ГАРАНТИРОВАННАЯ ЗАДЕРЖКА — 1000 мс между запросами
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 1200));
       }
 
-      if (bestOpportunity && globalState.balance > 1) {
-        console.log(`\n💎 ВАСЯ 3000 РЕКОМЕНДУЕТ: ${bestOpportunity.coin}`);
+      if (bestOpportunity && globalState.balance > 10) {
+        console.log(`\n💎 ВАСЯ 3000 РЕКОМЕНДУЕТ: ${bestOpportunity.signal.direction} по ${bestOpportunity.coin}`);
         bestReasoning.forEach(r => console.log(`   • ${r}`));
 
-        const baseSize = (globalState.balance * 0.2) / bestOpportunity.currentPrice;
-        const finalSize = baseSize * bestOpportunity.positionSizeFactor;
+        // Расчёт размера позиции с риск-менеджментом
+        const riskAmount = globalState.balance * globalState.maxRiskPerTrade;
+        const price = bestOpportunity.currentPrice;
+        const stopDistance = bestOpportunity.signal.direction === 'LONG' 
+          ? price - bestOpportunity.signal.stopLoss 
+          : bestOpportunity.signal.stopLoss - price;
+        
+        const size = riskAmount / stopDistance;
+        const finalSize = Math.max(0.001, size); // минимальный размер
 
-        if (finalSize > 0) {
-          console.log(`\n🟢 ВХОД: покупаем ${finalSize.toFixed(6)} ${bestOpportunity.coin}`);
-          openDemoTrade(bestOpportunity.coin, 'BUY', finalSize, bestOpportunity.currentPrice, globalState.takerFee, 0.01);
-        }
+        console.log(`\n🟢 ВХОД: ${bestOpportunity.signal.direction} ${finalSize.toFixed(6)} ${bestOpportunity.coin} с плечом ${bestOpportunity.signal.leverage}x`);
+        openFuturesTrade(
+          bestOpportunity.coin,
+          bestOpportunity.signal.direction,
+          bestOpportunity.signal.leverage,
+          finalSize,
+          bestOpportunity.currentPrice,
+          bestOpportunity.signal.stopLoss,
+          bestOpportunity.signal.takeProfit
+        );
       } else {
         console.log(`\n⚪ Вася 3000 не видит возможностей — отдыхаем...`);
       }
 
+      // Обновляем статистику
+      globalState.stats.totalProfit = globalState.balance - 100;
+      if (globalState.balance > globalState.stats.peakBalance) {
+        globalState.stats.peakBalance = globalState.balance;
+      }
+      globalState.stats.maxDrawdown = ((globalState.stats.peakBalance - globalState.balance) / globalState.stats.peakBalance) * 100;
+      globalState.stats.winRate = globalState.stats.totalTrades > 0
+        ? (globalState.stats.profitableTrades / globalState.stats.totalTrades) * 100
+        : 0;
+
       if (Date.now() % 60000 < 10000) {
         console.log(`\n💰 ТЕКУЩИЙ БАЛАНС: $${globalState.balance.toFixed(2)}`);
-        for (const coin of globalState.watchlist) {
-          if (globalState.positions[coin.name] > 0) {
-            const avgPrice = globalState.marketMemory.lastBuyPrices[coin.name].reduce((a, b) => a + b, 0) / globalState.marketMemory.lastBuyPrices[coin.name].length || 0;
-            console.log(`   → ${coin.name}: ${globalState.positions[coin.name].toFixed(6)} @ $${avgPrice.toFixed(2)}`);
-          }
-        }
       }
 
-      if (globalState.stats.totalTrades > 0 && globalState.history.length % 3 === 0) {
+      if (globalState.stats.totalTrades > 0 && globalState.history.length % 2 === 0) {
         printStats();
       }
 
     } catch (error) {
       console.error('💥 КРИТИЧЕСКАЯ ОШИБКА В ЦИКЛЕ:', error.message);
-      console.error('💥 Стек ошибки:', error.stack);
     }
 
     console.log(`\n💤 Ждём 60 секунд до следующего анализа...`);
@@ -549,5 +587,5 @@ global.balance = () => globalState.balance;
 global.stats = () => globalState.stats;
 global.history = () => globalState.history;
 
-console.log('\n✅ Трейдинг Бот Вася 3000 Уникальный запущен!');
-console.log('Сохраняет мудрость философии — говорит языком прибыли.');
+console.log('\n✅ Трейдинг Бот Вася 3000 Уникальный (Фьючерсы) запущен!');
+console.log('Философия + риск-менеджмент + плечо = прибыль.');
