@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Философ Рынка — Торговый Бот v4.1</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f0f1a; color: #e0e0ff; padding: 20px; max-width: 1200px; margin: 0 auto; }
+        h1, h2, h3 { color: #8a2be2; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .section { background: #1a1a2e; padding: 20px; border-radius: 10px; margin-bottom: 25px; box-shadow: 0 4px 8px rgba(0,0,0,0.3); }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
+        .stat-card { background: #2a2a40; padding: 15px; border-radius: 8px; text-align: center; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #3a3a5a; }
+        th { background: #2a2a40; }
+        tr:hover { background: #1e1e30; }
+        .log-entry { background: #16213e; padding: 10px; margin: 5px 0; border-radius: 5px; font-family: monospace; }
+        .deposit-section { text-align: center; margin: 20px 0; }
+        input, button { padding: 10px; margin: 5px; border-radius: 5px; border: 1px solid #4a4a7a; }
+        button { background: #6a5acd; color: white; cursor: pointer; }
+        button:hover { background: #8a2be2; }
+        .progress-bar { height: 20px; background: #2a2a40; border-radius: 10px; margin: 10px 0; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #ff6b6b, #4ecdc4); border-radius: 10px; transition: width 0.3s; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🧠 Философ Рынка — Торговый Бот v4.1</h1>
+        <p><em>Думает, а не следует. Чувствует, а не считает.</em></p>
+    </div>
+
+    <div class="section">
+        <h2>💼 Управление капиталом</h2>
+        <div class="deposit-section">
+            <input type="number" id="depositAmount" placeholder="Сумма пополнения" step="0.01" min="0.01">
+            <button onclick="depositFunds()">Пополнить баланс</button>
+        </div>
+        <div id="balanceDisplay">Текущий баланс: $0.00</div>
+        <h3>📊 Открытые позиции</h3>
+        <div id="openPositions">Загрузка...</div>
+    </div>
+
+    <div class="section">
+        <h2>📈 Статистика торговли</h2>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div>Сделок всего</div>
+                <div id="totalTrades">0</div>
+            </div>
+            <div class="stat-card">
+                <div>Win Rate</div>
+                <div id="winRate">0.0%</div>
+            </div>
+            <div class="stat-card">
+                <div>Чистая прибыль</div>
+                <div id="totalProfit">$0.00</div>
+            </div>
+            <div class="stat-card">
+                <div>Макс. просадка</div>
+                <div id="maxDrawdown">0.0%</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>🎯 Прогресс открытых сделок</h2>
+        <div id="progressDisplay">Нет открытых позиций</div>
+    </div>
+
+    <div class="section">
+        <h2>📜 История сделок</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Время</th>
+                    <th>Монета</th>
+                    <th>Тип</th>
+                    <th>Цена</th>
+                    <th>Размер</th>
+                    <th>Прибыль</th>
+                </tr>
+            </thead>
+            <tbody id="tradeHistory">
+                <tr><td colspan="6">Загрузка истории...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>🧠 Лог философского анализа</h2>
+        <div id="philosophyLog">Ожидание анализа...</div>
+    </div>
+
+    <script>
+        let lastLog = '';
+
+        async function updateState() {
+            try {
+                const response = await fetch('/api/state');
+                const state = await response.json();
+
+                // Баланс
+                document.getElementById('balanceDisplay').innerText = `Текущий баланс: $${state.balance.toFixed(2)}`;
+
+                // Статистика
+                document.getElementById('totalTrades').innerText = state.stats.totalTrades;
+                document.getElementById('winRate').innerText = `${state.stats.winRate.toFixed(1)}%`;
+                document.getElementById('totalProfit').innerText = `$${state.stats.totalProfit.toFixed(2)}`;
+                document.getElementById('maxDrawdown').innerText = `${state.stats.maxDrawdown.toFixed(1)}%`;
+
+                // Открытые позиции
+                let positionsHtml = '';
+                let hasOpen = false;
+                for (const [coin, size] of Object.entries(state.positions)) {
+                    if (size > 0) {
+                        hasOpen = true;
+                        positionsHtml += `<div>→ ${coin}: ${size.toFixed(6)}</div>`;
+                    }
+                }
+                document.getElementById('openPositions').innerHTML = hasOpen ? positionsHtml : 'Нет открытых позиций';
+
+                // Прогресс сделок (упрощённо)
+                let progressHtml = '';
+                state.history.forEach(trade => {
+                    if (trade.status === 'OPEN') {
+                        progressHtml += `
+                            <div><strong>${trade.coin}</strong></div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 50%;"></div>
+                            </div>
+                            <div>Цель: $${trade.targetPrice?.toFixed(2) || 'N/A'} | Стоп: $${trade.stopLossPrice?.toFixed(2) || 'N/A'}</div>
+                        `;
+                    }
+                });
+                document.getElementById('progressDisplay').innerHTML = progressHtml || 'Нет открытых позиций';
+
+                // История сделок
+                let historyHtml = '';
+                state.history.slice(-10).forEach(trade => {
+                    const profit = trade.profitPercent ? `${(trade.profitPercent * 100).toFixed(2)}%` : '-';
+                    historyHtml += `
+                        <tr>
+                            <td>${trade.timestamp}</td>
+                            <td>${trade.coin}</td>
+                            <td>${trade.type}</td>
+                            <td>$${trade.entryPrice?.toFixed(2) || trade.price?.toFixed(2) || 'N/A'}</td>
+                            <td>${trade.size?.toFixed(6) || '-'}</td>
+                            <td>${profit}</td>
+                        </tr>
+                    `;
+                });
+                document.getElementById('tradeHistory').innerHTML = historyHtml || '<tr><td colspan="6">Нет сделок</td></tr>';
+
+                // Лог анализа (имитация)
+                const now = new Date().toLocaleTimeString();
+                if (state.stats.totalTrades === 0 && lastLog !== 'init') {
+                    document.getElementById('philosophyLog').innerHTML = `<div class="log-entry">[${now}] ⚪ Нет философски обоснованных возможностей — ждём...</div>`;
+                    lastLog = 'init';
+                } else if (state.stats.totalTrades > 0 && lastLog !== 'trade') {
+                    document.getElementById('philosophyLog').innerHTML = `<div class="log-entry">[${now}] 💎 ФИЛОСОФСКИЙ ВЫВОД: найдена возможность на основе закона инерции и Инь-Ян</div>`;
+                    lastLog = 'trade';
+                }
+
+            } catch (error) {
+                console.error('Ошибка обновления:', error);
+            }
+        }
+
+        async function depositFunds() {
+            const amount = parseFloat(document.getElementById('depositAmount').value);
+            if (isNaN(amount) || amount <= 0) {
+                alert('Введите корректную сумму');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/deposit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ amount })
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    alert(`Баланс пополнен! Новый баланс: $${result.balance.toFixed(2)}`);
+                    updateState();
+                } else {
+                    alert('Ошибка: ' + result.message);
+                }
+            } catch (error) {
+                alert('Ошибка соединения');
+            }
+        }
+
+        // Обновляем каждые 5 секунд
+        setInterval(updateState, 5000);
+        updateState(); // Первый запуск
+    </script>
+</body>
+</html>
