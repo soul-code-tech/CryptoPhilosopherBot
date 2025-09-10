@@ -1,7 +1,7 @@
 {
-  "name": "ProTraderBot-BingX",
+  "name": "Vasya3000-Futures",
   "version": "1.0.0",
-  "description": "Профессиональный трейдерский бот с веб-интерфейсом и BingX API",
+  "description": "Трейдинг Бот Вася 3000 Уникальный — фьючерсы с философской логикой",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
