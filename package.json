@@ -1,7 +1,7 @@
 {
-  "name": "CryptoPhilosopherBot-BingX",
+  "name": "ProTraderBot-BingX",
   "version": "1.0.0",
-  "description": "Философский криптобот с веб-интерфейсом и BingX API",
+  "description": "Профессиональный трейдерский бот с веб-интерфейсом и BingX API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
