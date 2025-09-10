@@ -1,7 +1,7 @@
 const axios = require('axios');
 
 // ==========================
-// ГЛОБАЛЬНОЕ СОСТОЯНИЕ — ПРОФЕССИОНАЛЬНЫЙ ТРЕЙДЕРСКИЙ БОТ (BINGX ВЕРСИЯ)
+// ГЛОБАЛЬНОЕ СОСТОЯНИЕ — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ
 // ==========================
 let globalState = {
   balance: 10,
@@ -73,15 +73,28 @@ async function getFearAndGreedIndex() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение текущих цен с BingX — С ЗАЩИТОЙ
+// ФУНКЦИЯ: Получение текущих цен с BingX — С МАКСИМАЛЬНОЙ ЗАЩИТОЙ
 // ==========================
 async function getCurrentPrices() {
   try {
-    const response = await axios.get('https://open-api.bingx.com/openApi/spot/v1/ticker/price', { timeout: 10000 });
+    console.log('📡 Запрашиваю текущие цены с BingX...');
 
-    // 🔒 ЗАЩИТА: проверяем структуру ответа
-    if (!response.data || !response.data.data || !Array.isArray(response.data.data)) {
-      console.error('⚠️ Некорректный ответ от BingX при получении цен:', response.data);
+    const response = await axios.get('https://open-api.bingx.com/openApi/spot/v1/ticker/price', {
+      timeout: 15000
+    });
+
+    if (!response || !response.data) {
+      console.error('❌ BingX не вернул данные при запросе цен');
+      return {};
+    }
+
+    if (response.data.code && response.data.code !== 0) {
+      console.error('❌ Ошибка BingX при запросе цен:', response.data.msg);
+      return {};
+    }
+
+    if (!Array.isArray(response.data.data)) {
+      console.error('❌ BingX вернул не массив при запросе цен:', response.data);
       return {};
     }
 
@@ -106,6 +119,8 @@ async function getCurrentPrices() {
       }
       prices[coinName] = parseFloat(ticker.price);
     }
+
+    console.log('✅ Цены получены успешно');
     return prices;
   } catch (error) {
     console.error('❌ Ошибка получения цен с BingX:', error.message);
@@ -114,10 +129,11 @@ async function getCurrentPrices() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение исторических свечей с BingX — ИСПРАВЛЕННАЯ
+// ФУНКЦИЯ: Получение исторических свечей с BingX — ЖЁСТКИЙ МАППИНГ, БЕЗ ОШИБОК
 // ==========================
 async function getBingXHistory(symbol, interval = '1h', limit = 50) {
   try {
+    // 🔥 ЖЁСТКИЙ МАППИНГ — ТОЛЬКО ИЗВЕСТНЫЕ СИМВОЛЫ
     const symbolMap = {
       'bitcoin': 'BTC',
       'ethereum': 'ETH',
@@ -131,8 +147,14 @@ async function getBingXHistory(symbol, interval = '1h', limit = 50) {
       'matic-network': 'MATIC'
     };
 
-    const baseSymbol = symbolMap[symbol] || symbol.toUpperCase().replace('-NETWORK', '').replace('COIN', '');
-    const bingxSymbol = baseSymbol + '-USDT';
+    const baseSymbol = symbolMap[symbol];
+    if (!baseSymbol) {
+      console.error(`❌ Неизвестная монета в запросе истории: ${symbol}`);
+      return [];
+    }
+
+    const bingxSymbol = `${baseSymbol}-USDT`;
+    console.log(`📡 Запрашиваю историю для: ${bingxSymbol}`);
 
     const response = await axios.get('https://open-api.bingx.com/openApi/spot/v1/market/kline', {
       params: {
@@ -140,18 +162,32 @@ async function getBingXHistory(symbol, interval = '1h', limit = 50) {
         interval: interval,
         limit: limit
       },
-      timeout: 10000
+      timeout: 15000
     });
 
-    if (!response.data || !response.data.data || !Array.isArray(response.data.data)) {
-      console.error(`⚠️ Некорректный ответ от BingX для ${symbol}:`, response.data);
+    // Проверка структуры ответа
+    if (!response || !response.data) {
+      console.error(`❌ BingX не вернул данные для ${symbol}`);
       return [];
     }
 
-    return response.data.data.map(candle => ({
+    if (response.data.code && response.data.code !== 0) {
+      console.error(`❌ Ошибка BingX для ${symbol}:`, response.data.msg);
+      return [];
+    }
+
+    if (!Array.isArray(response.data.data)) {
+      console.error(`❌ BingX вернул не массив для ${symbol}:`, response.data);
+      return [];
+    }
+
+    const candles = response.data.data.map(candle => ({
       price: parseFloat(candle.close),
       time: candle.time
     }));
+
+    console.log(`✅ Получено ${candles.length} свечей для ${symbol}`);
+    return candles;
 
   } catch (error) {
     console.error(`❌ Ошибка получения истории для ${symbol} с BingX:`, error.message);
@@ -160,10 +196,13 @@ async function getBingXHistory(symbol, interval = '1h', limit = 50) {
 }
 
 // ==========================
-// ФУНКЦИЯ: Профессиональный трейдерский анализ — с философией рынка (логика НЕ ИЗМЕНЕНА)
+// ФУНКЦИЯ: Анализ — с философией рынка (логика НЕ ИЗМЕНЕНА)
 // ==========================
 function analyzeCoinWithWisdom(candles, coinName, currentFearIndex) {
-  if (candles.length < 10) return null;
+  if (candles.length < 10) {
+    console.log(`⚠️ Недостаточно данных для анализа ${coinName} (требуется 10, есть ${candles.length})`);
+    return null;
+  }
 
   const prices = candles.map(c => c.price);
   const currentPrice = prices[prices.length - 1];
@@ -228,8 +267,8 @@ function analyzeCoinWithWisdom(candles, coinName, currentFearIndex) {
     shouldSell: wisdom.shouldSell,
     positionSizeFactor: wisdom.positionSizeFactor,
     reasoning: wisdom.reasoning,
-    trendProbability,           // ← Вероятность тренда (0.0 - 1.0)
-    expectedReturn,             // ← Ожидаемая доходность
+    trendProbability,
+    expectedReturn,
     isBuyZone,
     isSellZone,
     fearIndex: currentFearIndex
@@ -267,8 +306,7 @@ function openDemoTrade(coin, action, size, price, fees, targetProfitPercent = 0.
       timestamp: new Date().toLocaleString(),
       balanceBefore: globalState.balance + cost + fee,
       balanceAfter: globalState.balance,
-      status: 'OPEN',
-      trendProbability: 0.5 // будет обновлено при анализе
+      status: 'OPEN'
     };
 
     globalState.history.push(trade);
@@ -364,7 +402,7 @@ async function checkOpenPositions(currentPrices) {
 }
 
 // ==========================
-// ФУНКЦИЯ: Показ прогресса открытых позиций — С ВЕРОЯТНОСТЬЮ УСПЕХА
+// ФУНКЦИЯ: Показ прогресса открытых позиций
 // ==========================
 function showOpenPositionsProgress(currentPrices) {
   console.log(`\n📊 ОТКРЫТЫЕ ПОЗИЦИИ — ПРОГРЕСС:`);
@@ -380,17 +418,16 @@ function showOpenPositionsProgress(currentPrices) {
     const progressToTarget = (currentPrice - openTrade.entryPrice) / (openTrade.targetPrice - openTrade.entryPrice) * 100;
     const distanceToTarget = ((openTrade.targetPrice - currentPrice) / currentPrice) * 100;
 
-    // 🔥 РАСЧЁТ ВЕРОЯТНОСТИ УСПЕШНОГО ЗАВЕРШЕНИЯ
-    let successProbability = 50; // базовая
+    let successProbability = 50;
     if (progressToTarget > 0) successProbability += progressToTarget * 0.5;
-    if (distanceToTarget < 0) successProbability += 20; // уже в плюсе
+    if (distanceToTarget < 0) successProbability += 20;
     successProbability = Math.min(95, Math.max(5, successProbability));
 
     console.log(`\n📈 ${coin.name}:`);
     console.log(`   Вход: $${openTrade.entryPrice.toFixed(2)} | Текущая: $${currentPrice.toFixed(2)}`);
     console.log(`   🎯 Цель: $${openTrade.targetPrice.toFixed(2)} (${distanceToTarget > 0 ? '+' : ''}${distanceToTarget.toFixed(2)}% до цели)`);
     console.log(`   📊 Прогресс: ${Math.min(100, Math.max(0, progressToTarget)).toFixed(1)}%`);
-    console.log(`   🎲 Вероятность успеха: ${successProbability.toFixed(0)}%`); // ← НОВЫЙ ИНДИКАТОР!
+    console.log(`   🎲 Вероятность успеха: ${successProbability.toFixed(0)}%`);
     console.log(`   🛑 Стоп: $${openTrade.stopLossPrice.toFixed(2)}`);
 
     hasOpen = true;
@@ -416,13 +453,13 @@ function printStats() {
 // ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
 // ==========================
 (async () => {
-  console.log('🤖 ЗАПУСК БОТА v5.0 — ПРОФЕССИОНАЛЬНЫЙ ТРЕЙДЕРСКИЙ АНАЛИЗ (BINGX)');
+  console.log('🤖 ЗАПУСК БОТА v6.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ');
   console.log('📌 deposit(сумма) — пополнить баланс в REPL');
-  console.log('📈 LONG с целями, стопами, прогрессом и вероятностью успеха');
+  console.log('📈 Сохраняет философскую логику — выглядит как профессиональный трейдер');
 
   while (globalState.isRunning) {
     try {
-      console.log(`\n[${new Date().toLocaleTimeString()}] === ПРОФЕССИОНАЛЬНЫЙ ТРЕЙДЕРСКИЙ АНАЛИЗ ===`);
+      console.log(`\n[${new Date().toLocaleTimeString()}] === АНАЛИЗ ОТ ВАСИ 3000 ===`);
 
       const fearIndex = await getFearAndGreedIndex();
       console.log(`😱 Индекс страха и жадности: ${fearIndex}`);
@@ -436,13 +473,22 @@ function printStats() {
       let bestReasoning = [];
 
       for (const coin of globalState.watchlist) {
+        console.log(`\n🔍 Анализирую ${coin.name}...`);
+
         const candles = await getBingXHistory(coin.name, '1h', 50);
-        if (candles.length < 10) continue;
+        if (candles.length < 10) {
+          console.log(`   ⚠️ Пропускаем ${coin.name} — недостаточно данных`);
+          await new Promise(r => setTimeout(r, 1000)); // Задержка даже при ошибке
+          continue;
+        }
 
         const analysis = analyzeCoinWithWisdom(candles, coin.name, fearIndex);
-        if (!analysis) continue;
+        if (!analysis) {
+          await new Promise(r => setTimeout(r, 1000));
+          continue;
+        }
 
-        console.log(`\n🔍 ${coin.name}:`);
+        console.log(`   ✅ Анализ завершён для ${coin.name}`);
         analysis.reasoning.forEach(r => console.log(`   • ${r}`));
 
         if (analysis.shouldBuy && !bestOpportunity) {
@@ -450,11 +496,12 @@ function printStats() {
           bestReasoning = analysis.reasoning;
         }
 
-        await new Promise(r => setTimeout(r, 800));
+        // 🚀 ГАРАНТИРОВАННАЯ ЗАДЕРЖКА — 1000 мс между запросами
+        await new Promise(r => setTimeout(r, 1000));
       }
 
       if (bestOpportunity && globalState.balance > 1) {
-        console.log(`\n💎 ПРОФЕССИОНАЛЬНЫЙ ВЫВОД: ${bestOpportunity.coin}`);
+        console.log(`\n💎 ВАСЯ 3000 РЕКОМЕНДУЕТ: ${bestOpportunity.coin}`);
         bestReasoning.forEach(r => console.log(`   • ${r}`));
 
         const baseSize = (globalState.balance * 0.2) / bestOpportunity.currentPrice;
@@ -465,7 +512,7 @@ function printStats() {
           openDemoTrade(bestOpportunity.coin, 'BUY', finalSize, bestOpportunity.currentPrice, globalState.takerFee, 0.01);
         }
       } else {
-        console.log(`\n⚪ Нет профессионально обоснованных возможностей — ждём...`);
+        console.log(`\n⚪ Вася 3000 не видит возможностей — отдыхаем...`);
       }
 
       if (Date.now() % 60000 < 10000) {
@@ -483,9 +530,11 @@ function printStats() {
       }
 
     } catch (error) {
-      console.error('💥 Ошибка в цикле:', error.message);
+      console.error('💥 КРИТИЧЕСКАЯ ОШИБКА В ЦИКЛЕ:', error.message);
+      console.error('💥 Стек ошибки:', error.stack);
     }
 
+    console.log(`\n💤 Ждём 60 секунд до следующего анализа...`);
     await new Promise(r => setTimeout(r, 60000));
   }
 })();
@@ -500,5 +549,5 @@ global.balance = () => globalState.balance;
 global.stats = () => globalState.stats;
 global.history = () => globalState.history;
 
-console.log('\n✅ Бот v5.0 "Профессиональный Трейдерский Аналитик" запущен!');
-console.log('Сохраняет философскую логику, но говорит на языке трейдеров.');
+console.log('\n✅ Трейдинг Бот Вася 3000 Уникальный запущен!');
+console.log('Сохраняет мудрость философии — говорит языком прибыли.');
