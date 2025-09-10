@@ -361,6 +361,7 @@
                 const response = await fetch('/api/state');
                 const state = await response.json();
 
+                // Обновляем баланс
                 document.getElementById('balanceDisplay').innerHTML = `
                     <div>📊 Демо-баланс: $${state.balance.toFixed(2)}</div>
                     <div>🏦 Реальный баланс: $${state.realBalance?.toFixed(2) || 'Загрузка...'}</div>
@@ -373,6 +374,7 @@
                 document.getElementById('maxDrawdown').innerText = `${state.stats.maxDrawdown.toFixed(1)}%`;
                 document.getElementById('maxLeverage').innerText = `${state.stats.maxLeverageUsed}x`;
 
+                // Открытые позиции
                 let positionsHtml = '';
                 let hasOpen = false;
                 for (const [coin, position] of Object.entries(state.positions)) {
@@ -383,6 +385,7 @@
                 }
                 document.getElementById('openPositions').innerHTML = hasOpen ? positionsHtml : 'Нет открытых позиций';
 
+                // Прогресс сделок
                 let progressHtml = '';
                 state.history.forEach(trade => {
                     if (trade.status === 'OPEN') {
@@ -409,6 +412,7 @@
                 });
                 document.getElementById('progressDisplay').innerHTML = progressHtml || 'Нет открытых позиций';
 
+                // История сделок
                 let historyHtml = '';
                 state.history.slice(-15).forEach(trade => {
                     const profit = trade.profitPercent ? `${(trade.profitPercent * 100).toFixed(2)}%` : '-';
@@ -428,8 +432,10 @@
                 });
                 document.getElementById('tradeHistory').innerHTML = historyHtml || '<tr><td colspan="7">Нет сделок</td></tr>';
 
+                // Лог философского анализа — ОБНОВЛЯЕТСЯ КАЖДЫЕ 3 СЕКУНДЫ!
                 const now = new Date().toLocaleTimeString();
                 let logHtml = '';
+                
                 if (state.stats.totalTrades === 0 && lastLog !== 'init') {
                     logHtml = `<div class="log-entry">[${now}] ⚪ Вася 3000 анализирует рынок с философской точки зрения...</div>`;
                     lastLog = 'init';
@@ -439,6 +445,7 @@
                 } else {
                     logHtml = `<div class="log-entry">[${now}] 🔍 Вася продолжает мониторить рынок...</div>`;
                 }
+
                 document.getElementById('philosophyLog').innerHTML = logHtml;
                 document.getElementById('statusBar').innerText = `Вася мониторит рынок... Последнее обновление: ${now}`;
 
@@ -474,6 +481,7 @@
             }
         }
 
+        // Функция отправки тестового уведомления
         function sendTestNotification() {
             if (Notification.permission === 'granted') {
                 navigator.serviceWorker.ready.then(reg => {
@@ -488,11 +496,14 @@
             }
         }
 
+        // Регистрация сервис-воркера
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/sw.js')
                     .then(reg => {
                         console.log('✅ SW зарегистрирован:', reg.scope);
+                        
+                        // Запрос разрешения на уведомления
                         Notification.requestPermission().then(permission => {
                             if (permission === 'granted') {
                                 console.log('🔔 Уведомления разрешены');
@@ -503,8 +514,9 @@
             });
         }
 
+        // Обновляем каждые 3 секунды — РЕАЛЬНОЕ ВРЕМЯ!
         setInterval(updateState, 3000);
-        updateState();
+        updateState(); // Первый запуск
     </script>
 </body>
 </html>
