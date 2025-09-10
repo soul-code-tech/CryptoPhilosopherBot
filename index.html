@@ -263,9 +263,12 @@
         <h2>💼 Управление капиталом</h2>
         <div class="deposit-section">
             <input type="number" id="depositAmount" placeholder="Сумма пополнения" step="1" min="1">
-            <button onclick="depositFunds()">Пополнить баланс</button>
+            <button onclick="depositFunds()">Пополнить демо-баланс</button>
         </div>
-        <div id="balanceDisplay">Текущий баланс: $0.00</div>
+        <div id="balanceDisplay">
+            <div>📊 Демо-баланс: $0.00</div>
+            <div>🏦 Реальный баланс: $0.00</div>
+        </div>
         <h3>📊 Открытые позиции</h3>
         <div id="openPositions">Загрузка...</div>
     </div>
@@ -300,7 +303,7 @@
                 <div id="maxLeverage">1x</div>
             </div>
             <div class="stat-card">
-                <div>Текущий баланс</div>
+                <div>Текущий демо-баланс</div>
                 <div id="currentBalance">$0.00</div>
             </div>
         </div>
@@ -340,21 +343,16 @@
         let currentSection = 'dashboard';
 
         function showSection(sectionId) {
-            // Скрываем все секции
             document.getElementById('dashboard').style.display = 'none';
             document.getElementById('analysis').style.display = 'none';
             document.getElementById('history').style.display = 'none';
             document.getElementById('settings').style.display = 'none';
-            
-            // Показываем выбранную
             document.getElementById(sectionId).style.display = 'block';
             
-            // Обновляем активный пункт меню
             document.querySelectorAll('.menu-item').forEach(item => {
                 item.classList.remove('active');
             });
             event.currentTarget.classList.add('active');
-            
             currentSection = sectionId;
         }
 
@@ -363,18 +361,18 @@
                 const response = await fetch('/api/state');
                 const state = await response.json();
 
-                // Обновляем баланс
-                document.getElementById('balanceDisplay').innerText = `Текущий баланс: $${state.balance.toFixed(2)}`;
-                document.getElementById('currentBalance').innerText = `$${state.balance.toFixed(2)}`;
+                document.getElementById('balanceDisplay').innerHTML = `
+                    <div>📊 Демо-баланс: $${state.balance.toFixed(2)}</div>
+                    <div>🏦 Реальный баланс: $${state.realBalance?.toFixed(2) || 'Загрузка...'}</div>
+                `;
 
-                // Обновляем статистику
+                document.getElementById('currentBalance').innerText = `$${state.balance.toFixed(2)}`;
                 document.getElementById('totalTrades').innerText = state.stats.totalTrades;
                 document.getElementById('winRate').innerText = `${state.stats.winRate.toFixed(1)}%`;
                 document.getElementById('totalProfit').innerText = `$${state.stats.totalProfit.toFixed(2)}`;
                 document.getElementById('maxDrawdown').innerText = `${state.stats.maxDrawdown.toFixed(1)}%`;
                 document.getElementById('maxLeverage').innerText = `${state.stats.maxLeverageUsed}x`;
 
-                // Открытые позиции
                 let positionsHtml = '';
                 let hasOpen = false;
                 for (const [coin, position] of Object.entries(state.positions)) {
@@ -385,7 +383,6 @@
                 }
                 document.getElementById('openPositions').innerHTML = hasOpen ? positionsHtml : 'Нет открытых позиций';
 
-                // Прогресс сделок
                 let progressHtml = '';
                 state.history.forEach(trade => {
                     if (trade.status === 'OPEN') {
@@ -412,7 +409,6 @@
                 });
                 document.getElementById('progressDisplay').innerHTML = progressHtml || 'Нет открытых позиций';
 
-                // История сделок
                 let historyHtml = '';
                 state.history.slice(-15).forEach(trade => {
                     const profit = trade.profitPercent ? `${(trade.profitPercent * 100).toFixed(2)}%` : '-';
@@ -432,10 +428,8 @@
                 });
                 document.getElementById('tradeHistory').innerHTML = historyHtml || '<tr><td colspan="7">Нет сделок</td></tr>';
 
-                // Лог философского анализа — ОБНОВЛЯЕТСЯ КАЖДЫЕ 3 СЕКУНДЫ!
                 const now = new Date().toLocaleTimeString();
                 let logHtml = '';
-                
                 if (state.stats.totalTrades === 0 && lastLog !== 'init') {
                     logHtml = `<div class="log-entry">[${now}] ⚪ Вася 3000 анализирует рынок с философской точки зрения...</div>`;
                     lastLog = 'init';
@@ -445,7 +439,6 @@
                 } else {
                     logHtml = `<div class="log-entry">[${now}] 🔍 Вася продолжает мониторить рынок...</div>`;
                 }
-
                 document.getElementById('philosophyLog').innerHTML = logHtml;
                 document.getElementById('statusBar').innerText = `Вася мониторит рынок... Последнее обновление: ${now}`;
 
@@ -471,7 +464,7 @@
 
                 const result = await response.json();
                 if (result.success) {
-                    alert(`Баланс пополнен! Новый баланс: $${result.balance.toFixed(2)}`);
+                    alert(`Демо-баланс пополнен! Новый баланс: $${result.balance.toFixed(2)}`);
                     updateState();
                 } else {
                     alert('Ошибка: ' + result.message);
@@ -481,7 +474,6 @@
             }
         }
 
-        // Функция отправки тестового уведомления
         function sendTestNotification() {
             if (Notification.permission === 'granted') {
                 navigator.serviceWorker.ready.then(reg => {
@@ -496,14 +488,11 @@
             }
         }
 
-        // Регистрация сервис-воркера
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/sw.js')
                     .then(reg => {
                         console.log('✅ SW зарегистрирован:', reg.scope);
-                        
-                        // Запрос разрешения на уведомления
                         Notification.requestPermission().then(permission => {
                             if (permission === 'granted') {
                                 console.log('🔔 Уведомления разрешены');
@@ -514,9 +503,8 @@
             });
         }
 
-        // Обновляем каждые 3 секунды — РЕАЛЬНОЕ ВРЕМЯ!
         setInterval(updateState, 3000);
-        updateState(); // Первый запуск
+        updateState();
     </script>
 </body>
 </html>
