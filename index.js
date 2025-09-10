@@ -2,7 +2,7 @@ const axios = require('axios');
 const CryptoJS = require('crypto-js');
 
 // ==========================
-// ГЛОБАЛЬНОЕ СОСТОЯНИЕ — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (РЕАЛЬНАЯ ТОРГОВЛЯ)
+// ГЛОБАЛЬНОЕ СОСТОЯНИЕ — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ
 // ==========================
 let globalState = {
   balance: 100, // демо-баланс
@@ -26,8 +26,8 @@ let globalState = {
   },
   isRunning: true,
   takerFee: 0.0005,
-  maxRiskPerTrade: 0.01, // 1% от депозита на сделку — БЕЗОПАСНО!
-  maxLeverage: 3, // 3x плечо — БЕЗОПАСНО!
+  maxRiskPerTrade: 0.01, // 1% от депозита — БЕЗОПАСНО
+  maxLeverage: 3,        // 3x плечо — БЕЗОПАСНО
   watchlist: [
     { symbol: 'BTC', name: 'bitcoin' },
     { symbol: 'ETH', name: 'ethereum' },
@@ -65,111 +65,6 @@ function signBingXRequest(params) {
     .map(key => `${key}=${params[key]}`)
     .join('&');
   return CryptoJS.HmacSHA256(sortedParams, BINGX_SECRET_KEY).toString(CryptoJS.enc.Hex);
-}
-
-// ==========================
-// ФУНКЦИЯ: Получение реального баланса с BingX Futures
-// ==========================
-async function getBingXRealBalance() {
-  try {
-    const timestamp = Date.now();
-    const params = { timestamp };
-    const signature = signBingXRequest(params);
-    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/user/balance?${new URLSearchParams(params)}&signature=${signature}`;
-
-    const response = await axios.get(url, {
-      headers: { 'X-BX-APIKEY': BINGX_API_KEY },
-      timeout: 10000
-    });
-
-    if (response.data.code === 0 && response.data.data) {
-      const usdtAsset = response.data.data.find(asset => asset.asset === 'USDT');
-      if (usdtAsset) {
-        return parseFloat(usdtAsset.walletBalance);
-      }
-    }
-    return null;
-  } catch (error) {
-    console.error('❌ Ошибка получения реального баланса с BingX:', error.message);
-    return null;
-  }
-}
-
-// ==========================
-// ФУНКЦИЯ: Установка плеча для фьючерсов
-// ==========================
-async function setBingXLeverage(symbol, leverage) {
-  try {
-    const timestamp = Date.now();
-    const params = { symbol, leverage: leverage.toString(), timestamp };
-    const signature = signBingXRequest(params);
-    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/trade/leverage?${new URLSearchParams(params)}&signature=${signature}`;
-
-    const response = await axios.post(url, {}, {
-      headers: { 'X-BX-APIKEY': BINGX_API_KEY },
-      timeout: 10000
-    });
-
-    if (response.data.code === 0) {
-      console.log(`✅ Плечо ${leverage}x установлено для ${symbol}`);
-    } else {
-      console.error(`❌ Ошибка установки плеча для ${symbol}:`, response.data.msg);
-    }
-  } catch (error) {
-    console.error(`💥 Ошибка установки плеча:`, error.message);
-  }
-}
-
-// ==========================
-// ФУНКЦИЯ: Размещение фьючерсного ордера
-// ==========================
-async function placeBingXFuturesOrder(symbol, side, positionSide, type, quantity, price = null, leverage) {
-  try {
-    await setBingXLeverage(symbol, leverage);
-
-    const timestamp = Date.now();
-    const params = {
-      symbol,
-      side,
-      positionSide,
-      type,
-      quantity: quantity.toFixed(6),
-      timestamp
-    };
-
-    if (price && type === 'LIMIT') {
-      params.price = price.toFixed(8);
-    }
-
-    const signature = signBingXRequest(params);
-    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/trade/order?${new URLSearchParams(params)}&signature=${signature}`;
-
-    const response = await axios.post(url, {}, {
-      headers: { 'X-BX-APIKEY': BINGX_API_KEY },
-      timeout: 10000
-    });
-
-    if (response.data.code === 0) {
-      console.log(`✅ УСПЕШНЫЙ ОРДЕР: ${side} ${quantity} ${symbol}`);
-      return response.data.data;
-    } else {
-      console.error(`❌ ОШИБКА ОРДЕРА:`, response.data.msg);
-      return null;
-    }
-  } catch (error) {
-    console.error(`💥 Ошибка при размещении ордера:`, error.message);
-    return null;
-  }
-}
-
-// ==========================
-// ФУНКЦИЯ: Пополнение баланса (для демо)
-// ==========================
-function deposit(amount) {
-  if (amount <= 0) return false;
-  globalState.balance += amount;
-  console.log(`✅ Баланс пополнен на $${amount}. Текущий баланс: $${globalState.balance.toFixed(2)}`);
-  return true;
 }
 
 // ==========================
@@ -384,6 +279,73 @@ function calculateRSI(prices) {
   const avgLoss = losses / count;
   const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
   return 100 - (100 / (1 + rs));
+}
+
+// ==========================
+// ФУНКЦИЯ: Установка плеча для фьючерсов
+// ==========================
+async function setBingXLeverage(symbol, leverage) {
+  try {
+    const timestamp = Date.now();
+    const params = { symbol, leverage: leverage.toString(), timestamp };
+    const signature = signBingXRequest(params);
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/trade/leverage?${new URLSearchParams(params)}&signature=${signature}`;
+
+    const response = await axios.post(url, {}, {
+      headers: { 'X-BX-APIKEY': BINGX_API_KEY },
+      timeout: 10000
+    });
+
+    if (response.data.code === 0) {
+      console.log(`✅ Плечо ${leverage}x установлено для ${symbol}`);
+    } else {
+      console.error(`❌ Ошибка установки плеча для ${symbol}:`, response.data.msg);
+    }
+  } catch (error) {
+    console.error(`💥 Ошибка установки плеча:`, error.message);
+  }
+}
+
+// ==========================
+// ФУНКЦИЯ: Размещение фьючерсного ордера
+// ==========================
+async function placeBingXFuturesOrder(symbol, side, positionSide, type, quantity, price = null, leverage) {
+  try {
+    await setBingXLeverage(symbol, leverage);
+
+    const timestamp = Date.now();
+    const params = {
+      symbol,
+      side,
+      positionSide,
+      type,
+      quantity: quantity.toFixed(6),
+      timestamp
+    };
+
+    if (price && type === 'LIMIT') {
+      params.price = price.toFixed(8);
+    }
+
+    const signature = signBingXRequest(params);
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/trade/order?${new URLSearchParams(params)}&signature=${signature}`;
+
+    const response = await axios.post(url, {}, {
+      headers: { 'X-BX-APIKEY': BINGX_API_KEY },
+      timeout: 10000
+    });
+
+    if (response.data.code === 0) {
+      console.log(`✅ УСПЕШНЫЙ ОРДЕР: ${side} ${quantity} ${symbol}`);
+      return response.data.data;
+    } else {
+      console.error(`❌ ОШИБКА ОРДЕРА:`, response.data.msg);
+      return null;
+    }
+  } catch (error) {
+    console.error(`💥 Ошибка при размещении ордера:`, error.message);
+    return null;
+  }
 }
 
 // ==========================
@@ -614,9 +576,9 @@ async function sendPushNotification(title, body, url = '/') {
 // ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
 // ==========================
 (async () => {
-  console.log('🤖 ЗАПУСК БОТА v9.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (РЕАЛЬНАЯ ТОРГОВЛЯ)');
+  console.log('🤖 ЗАПУСК БОТА v10.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (РЕАЛЬНАЯ ТОРГОВЛЯ)');
   console.log('📌 deposit(сумма) — пополнить демо-баланс');
-  console.log('📈 Торгует реальными деньгами на BingX Futures');
+  console.log('📈 Риск-менеджмент: 1% на сделку, плечо 3x — безопасно и прибыльно');
 
   while (globalState.isRunning) {
     try {
@@ -629,14 +591,6 @@ async function sendPushNotification(title, body, url = '/') {
       await checkOpenPositions(currentPrices);
 
       showOpenPositionsProgress(currentPrices);
-
-      // 🏦 Получаем реальный баланс каждые 5 минут
-      if (Date.now() % 300000 < 10000) {
-        const realBalance = await getBingXRealBalance();
-        if (realBalance !== null) {
-          console.log(`🏦 Реальный баланс с BingX: $${realBalance.toFixed(2)}`);
-        }
-      }
 
       let bestOpportunity = null;
       let bestReasoning = [];
@@ -726,10 +680,16 @@ module.exports = {
   deposit
 };
 
-global.deposit = deposit;
+global.deposit = function(amount) {
+  if (amount <= 0) return false;
+  globalState.balance += amount;
+  console.log(`✅ Баланс пополнен на $${amount}. Текущий баланс: $${globalState.balance.toFixed(2)}`);
+  return true;
+};
+
 global.balance = () => globalState.balance;
 global.stats = () => globalState.stats;
 global.history = () => globalState.history;
 
 console.log('\n✅ Трейдинг Бот Вася 3000 Уникальный (Реальная торговля) запущен!');
-console.log('Риск-менеджмент: 1% на сделку, плечо 3x — безопасно и прибыльно.');
+console.log('Он думает, а не следует. Он чувствует, а не считает.');
