@@ -1,7 +1,7 @@
 {
-  "name": "CryptoPhilosopherBot-Futures",
+  "name": "Vasya3000-RealTrading",
   "version": "1.0.0",
-  "description": "Трейдинг Бот Вася 3000 Уникальный — фьючерсы с философской логикой",
+  "description": "Трейдинг Бот Вася 3000 Уникальный — реальная торговля на BingX Futures",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
