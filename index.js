@@ -2,10 +2,10 @@ const axios = require('axios');
 const CryptoJS = require('crypto-js');
 
 // ==========================
-// ГЛОБАЛЬНОЕ СОСТОЯНИЕ — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (ФЬЮЧЕРСЫ)
+// ГЛОБАЛЬНОЕ СОСТОЯНИЕ — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (РЕАЛЬНАЯ ТОРГОВЛЯ)
 // ==========================
 let globalState = {
-  balance: 100,
+  balance: 100, // демо-баланс
   positions: {},
   history: [],
   stats: {
@@ -26,8 +26,8 @@ let globalState = {
   },
   isRunning: true,
   takerFee: 0.0005,
-  maxRiskPerTrade: 0.02,
-  maxLeverage: 5, // для начала — 5x, можно увеличить позже
+  maxRiskPerTrade: 0.01, // 1% от депозита на сделку — БЕЗОПАСНО!
+  maxLeverage: 3, // 3x плечо — БЕЗОПАСНО!
   watchlist: [
     { symbol: 'BTC', name: 'bitcoin' },
     { symbol: 'ETH', name: 'ethereum' },
@@ -38,7 +38,7 @@ let globalState = {
     { symbol: 'ADA', name: 'cardano' },
     { symbol: 'DOT', name: 'polkadot' },
     { symbol: 'LINK', name: 'chainlink' }
-    // MATIC УДАЛЁН — как ты просил
+    // MATIC УДАЛЁН
   ]
 };
 
@@ -65,6 +65,34 @@ function signBingXRequest(params) {
     .map(key => `${key}=${params[key]}`)
     .join('&');
   return CryptoJS.HmacSHA256(sortedParams, BINGX_SECRET_KEY).toString(CryptoJS.enc.Hex);
+}
+
+// ==========================
+// ФУНКЦИЯ: Получение реального баланса с BingX Futures
+// ==========================
+async function getBingXRealBalance() {
+  try {
+    const timestamp = Date.now();
+    const params = { timestamp };
+    const signature = signBingXRequest(params);
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/user/balance?${new URLSearchParams(params)}&signature=${signature}`;
+
+    const response = await axios.get(url, {
+      headers: { 'X-BX-APIKEY': BINGX_API_KEY },
+      timeout: 10000
+    });
+
+    if (response.data.code === 0 && response.data.data) {
+      const usdtAsset = response.data.data.find(asset => asset.asset === 'USDT');
+      if (usdtAsset) {
+        return parseFloat(usdtAsset.walletBalance);
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error('❌ Ошибка получения реального баланса с BingX:', error.message);
+    return null;
+  }
 }
 
 // ==========================
@@ -97,7 +125,6 @@ async function setBingXLeverage(symbol, leverage) {
 // ==========================
 async function placeBingXFuturesOrder(symbol, side, positionSide, type, quantity, price = null, leverage) {
   try {
-    // Устанавливаем плечо перед ордером
     await setBingXLeverage(symbol, leverage);
 
     const timestamp = Date.now();
@@ -360,7 +387,7 @@ function calculateRSI(prices) {
 }
 
 // ==========================
-// ФУНКЦИЯ: Открытие фьючерсной позиции (РЕАЛЬНАЯ ТОРГОВЛЯ)
+// ФУНКЦИЯ: Открытие РЕАЛЬНОЙ фьючерсной позиции
 // ==========================
 async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss, takeProfit) {
   const symbolMap = {
@@ -419,6 +446,13 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
     globalState.stats.totalTrades++;
     globalState.marketMemory.consecutiveTrades[coin] = (globalState.marketMemory.consecutiveTrades[coin] || 0) + 1;
     globalState.stats.maxLeverageUsed = Math.max(globalState.stats.maxLeverageUsed, leverage);
+
+    // 📱 Отправляем Push-уведомление
+    await sendPushNotification(
+      `🚀 ${direction} открыта!`,
+      `${direction} ${size.toFixed(6)} ${coin} по $${price.toFixed(2)} с плечом ${leverage}x`,
+      '/'
+    );
 
     console.log(`✅ УСПЕШНО: ${direction} ${size} ${coin} на BingX Futures`);
     return true;
@@ -479,6 +513,13 @@ async function checkOpenPositions(currentPrices) {
       
       globalState.positions[coin.name] = null;
       globalState.marketMemory.consecutiveTrades[coin.name] = 0;
+
+      // 📱 Отправляем Push-уведомление
+      await sendPushNotification(
+        `🎯 Сделка закрыта!`,
+        `${reason} | Прибыль: ${(trade.profitPercent * 100).toFixed(2)}%`,
+        '/'
+      );
     } else {
       if (position.side === 'LONG' && currentPrice > position.entryPrice * 1.01) {
         position.trailingStop = Math.max(position.trailingStop, currentPrice * 0.99);
@@ -549,12 +590,33 @@ function printStats() {
 }
 
 // ==========================
+// ФУНКЦИЯ: Отправка Push-уведомления
+// ==========================
+async function sendPushNotification(title, body, url = '/') {
+  try {
+    const response = await fetch('http://localhost:3000/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, body, url })
+    });
+
+    if (response.ok) {
+      console.log(`🔔 Push-уведомление отправлено: ${title}`);
+    } else {
+      console.log('⚠️ Не удалось отправить уведомление');
+    }
+  } catch (error) {
+    console.log('⚠️ Ошибка отправки уведомления:', error.message);
+  }
+}
+
+// ==========================
 // ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
 // ==========================
 (async () => {
-  console.log('🤖 ЗАПУСК БОТА v8.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (РЕАЛЬНАЯ ТОРГОВЛЯ НА BINGX)');
-  console.log('📌 deposit(сумма) — пополнить баланс');
-  console.log('📈 Использует API-ключ: CryptoPhilosopherBot');
+  console.log('🤖 ЗАПУСК БОТА v9.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (РЕАЛЬНАЯ ТОРГОВЛЯ)');
+  console.log('📌 deposit(сумма) — пополнить демо-баланс');
+  console.log('📈 Торгует реальными деньгами на BingX Futures');
 
   while (globalState.isRunning) {
     try {
@@ -567,6 +629,14 @@ function printStats() {
       await checkOpenPositions(currentPrices);
 
       showOpenPositionsProgress(currentPrices);
+
+      // 🏦 Получаем реальный баланс каждые 5 минут
+      if (Date.now() % 300000 < 10000) {
+        const realBalance = await getBingXRealBalance();
+        if (realBalance !== null) {
+          console.log(`🏦 Реальный баланс с BingX: $${realBalance.toFixed(2)}`);
+        }
+      }
 
       let bestOpportunity = null;
       let bestReasoning = [];
@@ -635,7 +705,7 @@ function printStats() {
         : 0;
 
       if (Date.now() % 60000 < 10000) {
-        console.log(`\n💰 ТЕКУЩИЙ БАЛАНС: $${globalState.balance.toFixed(2)}`);
+        console.log(`\n💰 Демо-баланс: $${globalState.balance.toFixed(2)}`);
       }
 
       if (globalState.stats.totalTrades > 0 && globalState.history.length % 2 === 0) {
@@ -662,4 +732,4 @@ global.stats = () => globalState.stats;
 global.history = () => globalState.history;
 
 console.log('\n✅ Трейдинг Бот Вася 3000 Уникальный (Реальная торговля) запущен!');
-console.log('API-ключ: CryptoPhilosopherBot — всё готово к заработку.');
+console.log('Риск-менеджмент: 1% на сделку, плечо 3x — безопасно и прибыльно.');
