@@ -68,6 +68,16 @@ function signBingXRequest(params) {
 }
 
 // ==========================
+// ФУНКЦИЯ: Пополнение баланса (для демо) — ВЫНЕСЕНА В ГЛОБАЛЬНУЮ ОБЛАСТЬ
+// ==========================
+function deposit(amount) {
+  if (amount <= 0) return false;
+  globalState.balance += amount;
+  console.log(`✅ Баланс пополнен на $${amount}. Текущий баланс: $${globalState.balance.toFixed(2)}`);
+  return true;
+}
+
+// ==========================
 // ФУНКЦИЯ: Получение Fear & Greed Index
 // ==========================
 async function getFearAndGreedIndex() {
@@ -576,7 +586,7 @@ async function sendPushNotification(title, body, url = '/') {
 // ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
 // ==========================
 (async () => {
-  console.log('🤖 ЗАПУСК БОТА v10.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (РЕАЛЬНАЯ ТОРГОВЛЯ)');
+  console.log('🤖 ЗАПУСК БОТА v10.1 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (РЕАЛЬНАЯ ТОРГОВЛЯ)');
   console.log('📌 deposit(сумма) — пополнить демо-баланс');
   console.log('📈 Риск-менеджмент: 1% на сделку, плечо 3x — безопасно и прибыльно');
 
@@ -601,13 +611,13 @@ async function sendPushNotification(title, body, url = '/') {
         const candles = await getBingXFuturesHistory(coin.name, '1h', 50);
         if (candles.length < 10) {
           console.log(`   ⚠️ Пропускаем ${coin.name} — недостаточно данных`);
-          await new Promise(r => setTimeout(r, 1200));
+          await new Promise(r => setTimeout(r, 1200)); // Увеличена задержка до 1200 мс
           continue;
         }
 
         const analysis = analyzeFuturesWithWisdom(candles, coin.name, fearIndex);
         if (!analysis || !analysis.signal.direction) {
-          await new Promise(r => setTimeout(r, 1200));
+          await new Promise(r => setTimeout(r, 1200)); // Увеличена задержка до 1200 мс
           continue;
         }
 
@@ -619,7 +629,7 @@ async function sendPushNotification(title, body, url = '/') {
           bestReasoning = analysis.signal.reasoning;
         }
 
-        await new Promise(r => setTimeout(r, 1200));
+        await new Promise(r => setTimeout(r, 1200)); // Увеличена задержка до 1200 мс
       }
 
       if (bestOpportunity && globalState.balance > 10) {
@@ -675,18 +685,16 @@ async function sendPushNotification(title, body, url = '/') {
   }
 })();
 
+// ✅ ЭКСПОРТ ФУНКЦИЙ — ИСПРАВЛЕНО (deposit теперь доступен)
 module.exports = {
   globalState,
-  deposit
+  deposit,
+  balance: () => globalState.balance,
+  stats: () => globalState.stats,
+  history: () => globalState.history
 };
 
-global.deposit = function(amount) {
-  if (amount <= 0) return false;
-  globalState.balance += amount;
-  console.log(`✅ Баланс пополнен на $${amount}. Текущий баланс: $${globalState.balance.toFixed(2)}`);
-  return true;
-};
-
+global.deposit = deposit;
 global.balance = () => globalState.balance;
 global.stats = () => globalState.stats;
 global.history = () => globalState.history;
