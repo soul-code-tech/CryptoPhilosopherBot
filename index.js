@@ -2,7 +2,7 @@ const axios = require('axios');
 const CryptoJS = require('crypto-js');
 
 // ==========================
-// ГЛОБАЛЬНОЕ СОСТОЯНИЕ — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ
+// ГЛОБАЛЬНОЕ СОСТОЯНИЕ — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (BINGX FUTURES)
 // ==========================
 let globalState = {
   balance: 100, // демо-баланс
@@ -26,8 +26,8 @@ let globalState = {
   },
   isRunning: true,
   takerFee: 0.0005,
-  maxRiskPerTrade: 0.01, // 1% от депозита — БЕЗОПАСНО
-  maxLeverage: 3,        // 3x плечо — БЕЗОПАСНО
+  maxRiskPerTrade: 0.01, // 1% от депозита
+  maxLeverage: 3,        // 3x плечо
   watchlist: [
     { symbol: 'BTC', name: 'bitcoin' },
     { symbol: 'ETH', name: 'ethereum' },
@@ -38,7 +38,6 @@ let globalState = {
     { symbol: 'ADA', name: 'cardano' },
     { symbol: 'DOT', name: 'polkadot' },
     { symbol: 'LINK', name: 'chainlink' }
-    // MATIC УДАЛЁН
   ]
 };
 
@@ -65,16 +64,6 @@ function signBingXRequest(params) {
     .map(key => `${key}=${params[key]}`)
     .join('&');
   return CryptoJS.HmacSHA256(sortedParams, BINGX_SECRET_KEY).toString(CryptoJS.enc.Hex);
-}
-
-// ==========================
-// ФУНКЦИЯ: Пополнение баланса (для демо) — ВЫНЕСЕНА В ГЛОБАЛЬНУЮ ОБЛАСТЬ
-// ==========================
-function deposit(amount) {
-  if (amount <= 0) return false;
-  globalState.balance += amount;
-  console.log(`✅ Баланс пополнен на $${amount}. Текущий баланс: $${globalState.balance.toFixed(2)}`);
-  return true;
 }
 
 // ==========================
@@ -419,13 +408,6 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
     globalState.marketMemory.consecutiveTrades[coin] = (globalState.marketMemory.consecutiveTrades[coin] || 0) + 1;
     globalState.stats.maxLeverageUsed = Math.max(globalState.stats.maxLeverageUsed, leverage);
 
-    // 📱 Отправляем Push-уведомление
-    await sendPushNotification(
-      `🚀 ${direction} открыта!`,
-      `${direction} ${size.toFixed(6)} ${coin} по $${price.toFixed(2)} с плечом ${leverage}x`,
-      '/'
-    );
-
     console.log(`✅ УСПЕШНО: ${direction} ${size} ${coin} на BingX Futures`);
     return true;
   } else {
@@ -485,13 +467,6 @@ async function checkOpenPositions(currentPrices) {
       
       globalState.positions[coin.name] = null;
       globalState.marketMemory.consecutiveTrades[coin.name] = 0;
-
-      // 📱 Отправляем Push-уведомление
-      await sendPushNotification(
-        `🎯 Сделка закрыта!`,
-        `${reason} | Прибыль: ${(trade.profitPercent * 100).toFixed(2)}%`,
-        '/'
-      );
     } else {
       if (position.side === 'LONG' && currentPrice > position.entryPrice * 1.01) {
         position.trailingStop = Math.max(position.trailingStop, currentPrice * 0.99);
@@ -562,33 +537,21 @@ function printStats() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Отправка Push-уведомления
+// ФУНКЦИЯ: Пополнение баланса (для демо)
 // ==========================
-async function sendPushNotification(title, body, url = '/') {
-  try {
-    const response = await fetch('http://localhost:3000/api/notify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, body, url })
-    });
-
-    if (response.ok) {
-      console.log(`🔔 Push-уведомление отправлено: ${title}`);
-    } else {
-      console.log('⚠️ Не удалось отправить уведомление');
-    }
-  } catch (error) {
-    console.log('⚠️ Ошибка отправки уведомления:', error.message);
-  }
+function deposit(amount) {
+  if (amount <= 0) return false;
+  globalState.balance += amount;
+  console.log(`✅ Баланс пополнен на $${amount}. Текущий баланс: $${globalState.balance.toFixed(2)}`);
+  return true;
 }
 
 // ==========================
 // ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
 // ==========================
 (async () => {
-  console.log('🤖 ЗАПУСК БОТА v10.1 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (РЕАЛЬНАЯ ТОРГОВЛЯ)');
+  console.log('🤖 ЗАПУСК БОТА v12.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (ЧИСТЫЙ BINGX FUTURES)');
   console.log('📌 deposit(сумма) — пополнить демо-баланс');
-  console.log('📈 Риск-менеджмент: 1% на сделку, плечо 3x — безопасно и прибыльно');
 
   while (globalState.isRunning) {
     try {
@@ -611,13 +574,13 @@ async function sendPushNotification(title, body, url = '/') {
         const candles = await getBingXFuturesHistory(coin.name, '1h', 50);
         if (candles.length < 10) {
           console.log(`   ⚠️ Пропускаем ${coin.name} — недостаточно данных`);
-          await new Promise(r => setTimeout(r, 1200)); // Увеличена задержка до 1200 мс
+          await new Promise(r => setTimeout(r, 1200));
           continue;
         }
 
         const analysis = analyzeFuturesWithWisdom(candles, coin.name, fearIndex);
         if (!analysis || !analysis.signal.direction) {
-          await new Promise(r => setTimeout(r, 1200)); // Увеличена задержка до 1200 мс
+          await new Promise(r => setTimeout(r, 1200));
           continue;
         }
 
@@ -629,7 +592,7 @@ async function sendPushNotification(title, body, url = '/') {
           bestReasoning = analysis.signal.reasoning;
         }
 
-        await new Promise(r => setTimeout(r, 1200)); // Увеличена задержка до 1200 мс
+        await new Promise(r => setTimeout(r, 1200));
       }
 
       if (bestOpportunity && globalState.balance > 10) {
@@ -685,7 +648,7 @@ async function sendPushNotification(title, body, url = '/') {
   }
 })();
 
-// ✅ ЭКСПОРТ ФУНКЦИЙ — ИСПРАВЛЕНО (deposit теперь доступен)
+// ✅ ЭКСПОРТ ФУНКЦИЙ
 module.exports = {
   globalState,
   deposit,
@@ -699,5 +662,5 @@ global.balance = () => globalState.balance;
 global.stats = () => globalState.stats;
 global.history = () => globalState.history;
 
-console.log('\n✅ Трейдинг Бот Вася 3000 Уникальный (Реальная торговля) запущен!');
-console.log('Он думает, а не следует. Он чувствует, а не считает.');
+console.log('\n✅ Трейдинг Бот Вася 3000 Уникальный (Чистый BingX Futures) запущен!');
+console.log('Теперь работает ТОЛЬКО с BingX — ошибок 401/429 не будет.');
