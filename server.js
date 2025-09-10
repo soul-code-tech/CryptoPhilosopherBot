@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const axios = require('axios'); // ✅ ДОБАВЛЕНО — исправление ошибки!
 
 const bot = require('./index.js');
 
@@ -55,7 +56,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Функция получения реального баланса (копия из index.js для сервера)
+// Функция получения реального баланса
 async function getBingXRealBalance() {
   const BINGX_API_KEY = process.env.BINGX_API_KEY;
   const BINGX_SECRET_KEY = process.env.BINGX_SECRET_KEY;
