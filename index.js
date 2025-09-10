@@ -2,10 +2,11 @@ const axios = require('axios');
 const CryptoJS = require('crypto-js');
 
 // ==========================
-// ГЛОБАЛЬНОЕ СОСТОЯНИЕ — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (BINGX FUTURES)
+// ГЛОБАЛЬНОЕ СОСТОЯНИЕ — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ
 // ==========================
 let globalState = {
   balance: 100, // демо-баланс
+  realBalance: null, // реальный баланс (будет получен с BingX)
   positions: {},
   history: [],
   stats: {
@@ -38,7 +39,8 @@ let globalState = {
     { symbol: 'ADA', name: 'cardano' },
     { symbol: 'DOT', name: 'polkadot' },
     { symbol: 'LINK', name: 'chainlink' }
-  ]
+  ],
+  isRealMode: false // 🔥 НОВОЕ: флаг режима (false = демо, true = реальный)
 };
 
 globalState.watchlist.forEach(coin => {
@@ -64,6 +66,55 @@ function signBingXRequest(params) {
     .map(key => `${key}=${params[key]}`)
     .join('&');
   return CryptoJS.HmacSHA256(sortedParams, BINGX_SECRET_KEY).toString(CryptoJS.enc.Hex);
+}
+
+// ==========================
+// ФУНКЦИЯ: Получение реального баланса с BingX Futures
+// ==========================
+async function getBingXRealBalance() {
+  try {
+    const timestamp = Date.now();
+    const params = { timestamp };
+    const signature = signBingXRequest(params);
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/user/balance?${new URLSearchParams(params)}&signature=${signature}`;
+
+    const response = await axios.get(url, {
+      headers: { 'X-BX-APIKEY': BINGX_API_KEY },
+      timeout: 10000
+    });
+
+    if (response.data.code === 0 && response.data.data) {
+      const assets = response.data.data.assets || response.data.data;
+      const assetsArray = Array.isArray(assets) ? assets : Object.values(assets);
+      const usdtAsset = assetsArray.find(asset => asset.asset === 'USDT');
+      if (usdtAsset && usdtAsset.walletBalance) {
+        return parseFloat(usdtAsset.walletBalance);
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error('❌ Ошибка получения реального баланса с BingX:', error.message);
+    return null;
+  }
+}
+
+// ==========================
+// ФУНКЦИЯ: Пополнение баланса (для демо)
+// ==========================
+function deposit(amount) {
+  if (amount <= 0) return false;
+  globalState.balance += amount;
+  console.log(`✅ Баланс пополнен на $${amount}. Текущий баланс: $${globalState.balance.toFixed(2)}`);
+  return true;
+}
+
+// ==========================
+// ФУНКЦИЯ: Переключение режима
+// ==========================
+function toggleMode() {
+  globalState.isRealMode = !globalState.isRealMode;
+  console.log(`🔄 Режим переключён на: ${globalState.isRealMode ? 'РЕАЛЬНЫЙ' : 'ДЕМО'}`);
+  return globalState.isRealMode;
 }
 
 // ==========================
@@ -348,7 +399,7 @@ async function placeBingXFuturesOrder(symbol, side, positionSide, type, quantity
 }
 
 // ==========================
-// ФУНКЦИЯ: Открытие РЕАЛЬНОЙ фьючерсной позиции
+// ФУНКЦИЯ: Открытие фьючерсной позиции (ДЕМО или РЕАЛЬНАЯ)
 // ==========================
 async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss, takeProfit) {
   const symbolMap = {
@@ -373,10 +424,73 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
   const positionSide = direction;
 
   console.log(`🌐 Отправка ${direction} ордера на BingX Futures: ${size} ${symbol} с плечом ${leverage}x`);
+  console.log(`🔄 Текущий режим: ${globalState.isRealMode ? 'РЕАЛЬНЫЙ' : 'ДЕМО'}`);
 
-  const result = await placeBingXFuturesOrder(symbol, side, positionSide, 'MARKET', size, null, leverage);
+  if (globalState.isRealMode) {
+    // Реальная торговля
+    const result = await placeBingXFuturesOrder(symbol, side, positionSide, 'MARKET', size, null, leverage);
 
-  if (result) {
+    if (result) {
+      const trade = {
+        coin,
+        type: direction,
+        size,
+        entryPrice: price,
+        leverage,
+        stopLoss,
+        takeProfit,
+        fee: 0,
+        timestamp: new Date().toLocaleString(),
+        status: 'OPEN',
+        orderId: result.orderId
+      };
+
+      globalState.history.push(trade);
+      globalState.positions[coin] = {
+        side: direction,
+        size,
+        entryPrice: price,
+        leverage,
+        stopLoss,
+        takeProfit,
+        fee: 0,
+        timestamp: new Date().toLocaleString(),
+        trailingStop: price * (direction === 'LONG' ? 0.99 : 1.01)
+      };
+
+      globalState.stats.totalTrades++;
+      globalState.marketMemory.consecutiveTrades[coin] = (globalState.marketMemory.consecutiveTrades[coin] || 0) + 1;
+      globalState.stats.maxLeverageUsed = Math.max(globalState.stats.maxLeverageUsed, leverage);
+
+      console.log(`✅ УСПЕШНО: ${direction} ${size} ${coin} на BingX Futures`);
+      return true;
+    } else {
+      console.log(`❌ Не удалось выполнить ордер на BingX Futures`);
+      return false;
+    }
+  } else {
+    // Демо-торговля
+    const cost = (size * price) / leverage;
+    const fee = size * price * globalState.takerFee;
+
+    if (cost + fee > globalState.balance * globalState.maxRiskPerTrade) {
+      console.log(`❌ Риск превышает ${globalState.maxRiskPerTrade * 100}% от депозита`);
+      return false;
+    }
+
+    globalState.balance -= fee;
+    globalState.positions[coin] = {
+      side: direction,
+      size,
+      entryPrice: price,
+      leverage,
+      stopLoss,
+      takeProfit,
+      fee,
+      timestamp: new Date().toLocaleString(),
+      trailingStop: price * (direction === 'LONG' ? 0.99 : 1.01)
+    };
+
     const trade = {
       coin,
       type: direction,
@@ -385,34 +499,18 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
       leverage,
       stopLoss,
       takeProfit,
-      fee: 0,
+      fee,
       timestamp: new Date().toLocaleString(),
-      status: 'OPEN',
-      orderId: result.orderId
+      status: 'OPEN'
     };
 
     globalState.history.push(trade);
-    globalState.positions[coin] = {
-      side: direction,
-      size,
-      entryPrice: price,
-      leverage,
-      stopLoss,
-      takeProfit,
-      fee: 0,
-      timestamp: new Date().toLocaleString(),
-      trailingStop: price * (direction === 'LONG' ? 0.99 : 1.01)
-    };
-
     globalState.stats.totalTrades++;
     globalState.marketMemory.consecutiveTrades[coin] = (globalState.marketMemory.consecutiveTrades[coin] || 0) + 1;
     globalState.stats.maxLeverageUsed = Math.max(globalState.stats.maxLeverageUsed, leverage);
 
-    console.log(`✅ УСПЕШНО: ${direction} ${size} ${coin} на BingX Futures`);
+    console.log(`✅ ДЕМО: ${direction} ${size} ${coin} с плечом ${leverage}x`);
     return true;
-  } else {
-    console.log(`❌ Не удалось выполнить ордер на BingX Futures`);
-    return false;
   }
 }
 
@@ -458,10 +556,18 @@ async function checkOpenPositions(currentPrices) {
         
         if (trade.profitPercent > 0) {
           globalState.stats.profitableTrades++;
-          globalState.balance += (trade.size * trade.entryPrice * trade.profitPercent);
+          if (globalState.isRealMode) {
+            // В реальном режиме баланс обновляется через API (не здесь)
+          } else {
+            globalState.balance += (trade.size * trade.entryPrice * trade.profitPercent);
+          }
         } else {
           globalState.stats.losingTrades++;
-          globalState.balance += (trade.size * trade.entryPrice * trade.profitPercent);
+          if (globalState.isRealMode) {
+            // В реальном режиме баланс обновляется через API
+          } else {
+            globalState.balance += (trade.size * trade.entryPrice * trade.profitPercent);
+          }
         }
       }
       
@@ -537,21 +643,33 @@ function printStats() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Пополнение баланса (для демо)
+// ФУНКЦИЯ: Отправка Push-уведомления
 // ==========================
-function deposit(amount) {
-  if (amount <= 0) return false;
-  globalState.balance += amount;
-  console.log(`✅ Баланс пополнен на $${amount}. Текущий баланс: $${globalState.balance.toFixed(2)}`);
-  return true;
+async function sendPushNotification(title, body, url = '/') {
+  try {
+    const response = await fetch('http://localhost:3000/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, body, url })
+    });
+
+    if (response.ok) {
+      console.log(`🔔 Push-уведомление отправлено: ${title}`);
+    } else {
+      console.log('⚠️ Не удалось отправить уведомление');
+    }
+  } catch (error) {
+    console.log('⚠️ Ошибка отправки уведомления:', error.message);
+  }
 }
 
 // ==========================
 // ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
 // ==========================
 (async () => {
-  console.log('🤖 ЗАПУСК БОТА v12.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (ЧИСТЫЙ BINGX FUTURES)');
+  console.log('🤖 ЗАПУСК БОТА v13.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (С ПЕРЕКЛЮЧЕНИЕМ РЕЖИМОВ)');
   console.log('📌 deposit(сумма) — пополнить демо-баланс');
+  console.log('🔄 toggleMode() — переключить режим (ДЕМО ↔ РЕАЛЬНЫЙ)');
 
   while (globalState.isRunning) {
     try {
@@ -559,6 +677,15 @@ function deposit(amount) {
 
       const fearIndex = await getFearAndGreedIndex();
       console.log(`😱 Индекс страха и жадности: ${fearIndex}`);
+
+      // 🏦 Получаем реальный баланс каждые 5 минут
+      if (Date.now() % 300000 < 10000) {
+        const realBalance = await getBingXRealBalance();
+        if (realBalance !== null) {
+          globalState.realBalance = realBalance;
+          console.log(`🏦 Реальный баланс с BingX: $${realBalance.toFixed(2)}`);
+        }
+      }
 
       const currentPrices = await getCurrentFuturesPrices();
       await checkOpenPositions(currentPrices);
@@ -595,11 +722,13 @@ function deposit(amount) {
         await new Promise(r => setTimeout(r, 1200));
       }
 
-      if (bestOpportunity && globalState.balance > 10) {
+      if (bestOpportunity && (globalState.isRealMode || globalState.balance > 10)) {
         console.log(`\n💎 ВАСЯ 3000 РЕКОМЕНДУЕТ: ${bestOpportunity.signal.direction} по ${bestOpportunity.coin}`);
         bestReasoning.forEach(r => console.log(`   • ${r}`));
 
-        const riskAmount = globalState.balance * globalState.maxRiskPerTrade;
+        // Используем реальный баланс в реальном режиме, демо — в демо
+        const currentBalance = globalState.isRealMode ? (globalState.realBalance || 100) : globalState.balance;
+        const riskAmount = currentBalance * globalState.maxRiskPerTrade;
         const price = bestOpportunity.currentPrice;
         const stopDistance = bestOpportunity.signal.direction === 'LONG' 
           ? price - bestOpportunity.signal.stopLoss 
@@ -622,17 +751,21 @@ function deposit(amount) {
         console.log(`\n⚪ Вася 3000 не видит возможностей — отдыхаем...`);
       }
 
-      globalState.stats.totalProfit = globalState.balance - 100;
-      if (globalState.balance > globalState.stats.peakBalance) {
-        globalState.stats.peakBalance = globalState.balance;
+      // Обновляем статистику (для демо-режима)
+      if (!globalState.isRealMode) {
+        globalState.stats.totalProfit = globalState.balance - 100;
+        if (globalState.balance > globalState.stats.peakBalance) {
+          globalState.stats.peakBalance = globalState.balance;
+        }
+        globalState.stats.maxDrawdown = ((globalState.stats.peakBalance - globalState.balance) / globalState.stats.peakBalance) * 100;
       }
-      globalState.stats.maxDrawdown = ((globalState.stats.peakBalance - globalState.balance) / globalState.stats.peakBalance) * 100;
+
       globalState.stats.winRate = globalState.stats.totalTrades > 0
         ? (globalState.stats.profitableTrades / globalState.stats.totalTrades) * 100
         : 0;
 
       if (Date.now() % 60000 < 10000) {
-        console.log(`\n💰 Демо-баланс: $${globalState.balance.toFixed(2)}`);
+        console.log(`\n💰 ${globalState.isRealMode ? 'Реальный' : 'Демо'}-баланс: $${(globalState.isRealMode ? globalState.realBalance : globalState.balance)?.toFixed(2) || 'Загрузка...'}`);
       }
 
       if (globalState.stats.totalTrades > 0 && globalState.history.length % 2 === 0) {
@@ -652,15 +785,17 @@ function deposit(amount) {
 module.exports = {
   globalState,
   deposit,
+  toggleMode, // 🔥 НОВОЕ: экспорт функции переключения режима
   balance: () => globalState.balance,
   stats: () => globalState.stats,
   history: () => globalState.history
 };
 
 global.deposit = deposit;
+global.toggleMode = toggleMode; // 🔥 НОВОЕ: глобальный доступ
 global.balance = () => globalState.balance;
 global.stats = () => globalState.stats;
 global.history = () => globalState.history;
 
-console.log('\n✅ Трейдинг Бот Вася 3000 Уникальный (Чистый BingX Futures) запущен!');
-console.log('Теперь работает ТОЛЬКО с BingX — ошибок 401/429 не будет.');
+console.log('\n✅ Трейдинг Бот Вася 3000 Уникальный (с переключением режимов) запущен!');
+console.log('Используй toggleMode() для переключения между ДЕМО и РЕАЛЬНЫМ режимом.');
