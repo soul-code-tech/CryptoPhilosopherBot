@@ -17,7 +17,7 @@ app.get('/api/state', (req, res) => {
     positions: bot.globalState.positions,
     stats: bot.globalState.stats,
     history: bot.globalState.history.slice(-50),
-    platform: 'BingX Demo'
+    platform: 'BingX Pro Trader'
   });
 });
 
@@ -41,5 +41,5 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  console.log('Твой бот работает и отдаёт данные интерфейсу!');
+  console.log('Твой профессиональный трейдерский бот работает!');
 });
