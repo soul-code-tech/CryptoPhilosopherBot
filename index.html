@@ -7,81 +7,76 @@
     
     <!-- PWA Manifest -->
     <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#f8a5c2">
+    <meta name="theme-color" content="#2c3e50">
     <link rel="apple-touch-icon" sizes="180x180" href="/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
 
     <style>
         :root {
-            --long-color: #2ecc71;
+            --long-color: #27ae60;
             --short-color: #e74c3c;
             --neutral-color: #3498db;
+            --bg-color: #1a1a2e;
+            --text-color: #e0e0e0;
+            --accent-color: #34495e;
         }
         body { 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
-            color: #e0e0e0; 
-            padding: 20px; 
-            max-width: 1400px; 
+            background: linear-gradient(135deg, #0f0f1a, #16213e, #0f3460);
+            color: var(--text-color); 
+            padding: 15px; 
+            max-width: 1200px; 
             margin: 0 auto; 
+            font-size: 14px;
         }
         h1, h2, h3 { 
             color: #f8a5c2; 
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
             text-align: center;
+            margin: 15px 0;
         }
         .header { 
             text-align: center; 
-            margin-bottom: 30px; 
-            padding: 25px; 
+            margin-bottom: 20px; 
+            padding: 15px; 
             background: rgba(255,255,255,0.05);
-            border-radius: 20px;
+            border-radius: 15px;
             backdrop-filter: blur(10px);
         }
         .section { 
             background: rgba(255,255,255,0.08); 
             backdrop-filter: blur(10px);
-            padding: 30px; 
-            border-radius: 20px; 
-            margin-bottom: 30px; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            padding: 20px; 
+            border-radius: 15px; 
+            margin-bottom: 20px; 
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
             border: 1px solid rgba(255,255,255,0.1);
-            transition: transform 0.3s ease;
-        }
-        .section:hover {
-            transform: translateY(-5px);
         }
         .stats-grid { 
             display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); 
-            gap: 25px; 
-            margin: 30px 0; 
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); 
+            gap: 15px; 
+            margin: 20px 0; 
         }
         .stat-card { 
             background: rgba(255,255,255,0.1); 
-            padding: 25px; 
-            border-radius: 15px; 
+            padding: 15px; 
+            border-radius: 10px; 
             text-align: center; 
             backdrop-filter: blur(5px);
             border: 1px solid rgba(255,255,255,0.2);
-            transition: all 0.3s ease;
-        }
-        .stat-card:hover {
-            background: rgba(255,255,255,0.15);
-            transform: scale(1.05);
         }
         table { 
             width: 100%; 
             border-collapse: collapse; 
-            margin: 30px 0; 
+            margin: 20px 0; 
             background: rgba(0,0,0,0.2);
-            border-radius: 15px;
+            border-radius: 10px;
             overflow: hidden;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
         }
         th, td { 
-            padding: 18px; 
+            padding: 12px; 
             text-align: left; 
             border-bottom: 1px solid rgba(255,255,255,0.1);
         }
@@ -90,110 +85,88 @@
             font-weight: bold;
             color: #f8a5c2;
         }
-        tr:nth-child(even) { 
-            background: rgba(0,0,0,0.1);
-        }
-        tr:hover { 
-            background: rgba(255,255,255,0.1);
-        }
         .log-entry { 
             background: rgba(0,0,0,0.2); 
-            padding: 15px; 
-            margin: 10px 0; 
-            border-radius: 10px; 
+            padding: 10px; 
+            margin: 8px 0; 
+            border-radius: 8px; 
             font-family: monospace; 
-            border-left: 5px solid var(--neutral-color);
-            transition: all 0.3s ease;
-            animation: fadeIn 0.5s;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .log-entry:hover {
-            background: rgba(0,0,0,0.3);
+            font-size: 13px;
+            border-left: 4px solid var(--neutral-color);
         }
         .deposit-section { 
             text-align: center; 
-            margin: 30px 0; 
+            margin: 20px 0; 
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
         }
         input, button { 
-            padding: 15px 25px; 
-            margin: 10px; 
-            border-radius: 10px; 
+            padding: 10px 20px; 
+            margin: 5px; 
+            border-radius: 8px; 
             border: 2px solid rgba(255,255,255,0.3); 
             background: rgba(255,255,255,0.1);
             color: white;
-            font-size: 16px;
+            font-size: 14px;
             font-weight: bold;
-            transition: all 0.3s ease;
         }
         input { 
             background: rgba(0,0,0,0.2); 
             color: white;
-        }
-        input:focus {
-            outline: none;
-            border-color: #f8a5c2;
-            box-shadow: 0 0 10px rgba(248, 165, 194, 0.5);
+            width: 150px;
         }
         button { 
-            background: linear-gradient(45deg, #f8a5c2, #a3c7e7); 
+            background: linear-gradient(45deg, #3498db, #2c3e50); 
             color: white; 
             cursor: pointer; 
-            box-shadow: 0 5px 15px rgba(248, 165, 194, 0.4);
         }
         button:hover { 
-            background: linear-gradient(45deg, #e74c3c, #f8a5c2);
-            transform: translateY(-3px);
-            box-shadow: 0 8px 20px rgba(248, 165, 194, 0.6);
+            background: linear-gradient(45deg, #2980b9, #1a252f);
         }
         .progress-bar-container { 
-            margin: 20px 0; 
+            margin: 15px 0; 
             background: rgba(0,0,0,0.3);
-            padding: 15px;
-            border-radius: 15px;
+            padding: 10px;
+            border-radius: 10px;
         }
         .progress-bar { 
-            height: 30px; 
+            height: 25px; 
             background: rgba(0,0,0,0.4); 
-            border-radius: 15px; 
+            border-radius: 10px; 
             overflow: hidden;
             position: relative;
-            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
         }
         .progress-fill { 
             height: 100%; 
             background: linear-gradient(90deg, #ff6b6b, #4ecdc4, #45b7d1); 
-            border-radius: 15px; 
+            border-radius: 10px; 
             transition: width 0.5s ease;
             position: relative;
-            box-shadow: 0 0 10px rgba(0,0,0,0.3);
         }
         .probability-tag {
             position: absolute;
-            right: 15px;
+            right: 10px;
             top: 50%;
             transform: translateY(-50%);
             background: rgba(0,0,0,0.7);
             color: white;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 14px;
+            padding: 3px 10px;
+            border-radius: 15px;
+            font-size: 12px;
             font-weight: bold;
-            backdrop-filter: blur(5px);
-            border: 1px solid rgba(255,255,255,0.3);
         }
         .side-tag {
             position: absolute;
-            left: 15px;
+            left: 10px;
             top: 50%;
             transform: translateY(-50%);
             background: var(--neutral-color);
             color: white;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 14px;
+            padding: 3px 10px;
+            border-radius: 15px;
+            font-size: 12px;
             font-weight: bold;
             text-transform: uppercase;
         }
@@ -203,42 +176,33 @@
         .side-short {
             background: var(--short-color);
         }
-        .profit-positive {
-            color: var(--long-color);
-            font-weight: bold;
-        }
-        .profit-negative {
-            color: var(--short-color);
-            font-weight: bold;
-        }
         .status-bar {
             background: rgba(0,0,0,0.3);
-            padding: 15px;
-            border-radius: 15px;
+            padding: 10px;
+            border-radius: 10px;
             text-align: center;
-            margin: 20px 0;
+            margin: 15px 0;
             font-weight: bold;
-            font-size: 18px;
+            font-size: 14px;
             color: #f8a5c2;
-            border: 1px solid rgba(248, 165, 194, 0.5);
         }
         .menu {
             display: flex;
             justify-content: center;
-            gap: 20px;
-            margin: 20px 0;
+            gap: 15px;
+            margin: 15px 0;
             flex-wrap: wrap;
         }
         .menu-item {
             background: rgba(255,255,255,0.1);
-            padding: 10px 20px;
-            border-radius: 10px;
+            padding: 8px 15px;
+            border-radius: 8px;
             cursor: pointer;
+            font-size: 14px;
             transition: all 0.3s ease;
         }
         .menu-item:hover {
             background: rgba(255,255,255,0.2);
-            transform: translateY(-3px);
         }
         .menu-item.active {
             background: rgba(248, 165, 194, 0.3);
@@ -256,7 +220,6 @@
         <div class="menu-item active" onclick="showSection('dashboard')">📊 Панель</div>
         <div class="menu-item" onclick="showSection('analysis')">🧠 Анализ</div>
         <div class="menu-item" onclick="showSection('history')">📜 История</div>
-        <div class="menu-item" onclick="showSection('settings')">⚙️ Настройки</div>
     </div>
 
     <div id="dashboard" class="section">
@@ -264,6 +227,8 @@
         <div class="deposit-section">
             <input type="number" id="depositAmount" placeholder="Сумма пополнения" step="1" min="1">
             <button onclick="depositFunds()">Пополнить демо-баланс</button>
+            <button onclick="toggleMode()">🔄 Переключить режим</button>
+            <div id="modeStatus">Текущий режим: ДЕМО</div>
         </div>
         <div id="balanceDisplay">
             <div>📊 Демо-баланс: $0.00</div>
@@ -273,13 +238,13 @@
         <div id="openPositions">Загрузка...</div>
     </div>
 
-    <div id="analysis" class="section">
+    <div id="analysis" class="section" style="display: none;">
         <h2>🧠 Лог философского анализа</h2>
         <div class="status-bar" id="statusBar">Вася мониторит рынок...</div>
         <div id="philosophyLog">Ожидание анализа...</div>
     </div>
 
-    <div id="history" class="section">
+    <div id="history" class="section" style="display: none;">
         <h2>📈 Статистика торговли</h2>
         <div class="stats-grid">
             <div class="stat-card">
@@ -301,10 +266,6 @@
             <div class="stat-card">
                 <div>Макс. плечо</div>
                 <div id="maxLeverage">1x</div>
-            </div>
-            <div class="stat-card">
-                <div>Текущий баланс</div>
-                <div id="currentBalance">$0.00</div>
             </div>
         </div>
 
@@ -330,16 +291,6 @@
         </table>
     </div>
 
-    <div id="settings" class="section" style="display: none;">
-        <h2>⚙️ Настройки</h2>
-        <div>
-            <button onclick="toggleMode()">🔄 Переключить режим (ДЕМО ↔ РЕАЛЬНЫЙ)</button>
-            <p id="modeStatus">Текущий режим: ДЕМО</p>
-            <button onclick="sendTestNotification()">🔔 Тестовое уведомление</button>
-            <p>Нажми, чтобы проверить Push-уведомления на телефоне</p>
-        </div>
-    </div>
-
     <script>
         let lastLog = '';
         let currentSection = 'dashboard';
@@ -348,13 +299,21 @@
             document.getElementById('dashboard').style.display = 'none';
             document.getElementById('analysis').style.display = 'none';
             document.getElementById('history').style.display = 'none';
-            document.getElementById('settings').style.display = 'none';
+            
             document.getElementById(sectionId).style.display = 'block';
             
             document.querySelectorAll('.menu-item').forEach(item => {
                 item.classList.remove('active');
             });
-            event.currentTarget.classList.add('active');
+            
+            // Найти кнопку по data-section или по тексту
+            const activeButton = Array.from(document.querySelectorAll('.menu-item'))
+                .find(btn => btn.textContent.includes(sectionId === 'dashboard' ? 'Панель' : 
+                                      sectionId === 'analysis' ? 'Анализ' : 'История'));
+            if (activeButton) {
+                activeButton.classList.add('active');
+            }
+            
             currentSection = sectionId;
         }
 
@@ -369,12 +328,6 @@
                     <div>🏦 Реальный баланс: $${state.realBalance?.toFixed(2) || 'Загрузка...'}</div>
                 `;
 
-                document.getElementById('currentBalance').innerText = `$${(state.isRealMode ? state.realBalance : state.balance)?.toFixed(2) || 'Загрузка...'}`;
-                document.getElementById('totalTrades').innerText = state.stats.totalTrades;
-                document.getElementById('winRate').innerText = `${state.stats.winRate.toFixed(1)}%`;
-                document.getElementById('totalProfit').innerText = `$${state.stats.totalProfit.toFixed(2)}`;
-                document.getElementById('maxDrawdown').innerText = `${state.stats.maxDrawdown.toFixed(1)}%`;
-                document.getElementById('maxLeverage').innerText = `${state.stats.maxLeverageUsed}x`;
                 document.getElementById('modeStatus').innerText = `Текущий режим: ${state.isRealMode ? 'РЕАЛЬНЫЙ' : 'ДЕМО'}`;
 
                 // Открытые позиции
@@ -398,16 +351,13 @@
                         
                         progressHtml += `
                             <div class="progress-bar-container">
-                                <div style="font-weight: bold; margin-bottom: 10px;">
+                                <div style="font-weight: bold; margin-bottom: 5px; font-size: 13px;">
                                     ${trade.coin} — ${trade.type} (Плечо: ${trade.leverage}x)
                                 </div>
                                 <div class="progress-bar">
                                     <div class="progress-fill" style="width: ${progress}%;"></div>
                                     <div class="probability-tag">${probability.toFixed(0)}%</div>
                                     <div class="side-tag side-${isLong ? 'long' : 'short'}">${trade.type}</div>
-                                </div>
-                                <div style="margin-top: 10px; font-size: 14px;">
-                                    Вход: $${trade.entryPrice?.toFixed(2) || 'N/A'} | Стоп: $${trade.stopLoss?.toFixed(2) || 'N/A'} | Тейк: $${trade.takeProfit?.toFixed(2) || 'N/A'}
                                 </div>
                             </div>
                         `;
@@ -417,25 +367,25 @@
 
                 // История сделок
                 let historyHtml = '';
-                state.history.slice(-15).forEach(trade => {
+                state.history.slice(-10).forEach(trade => {
                     const profit = trade.profitPercent ? `${(trade.profitPercent * 100).toFixed(2)}%` : '-';
                     const profitClass = trade.profitPercent > 0 ? 'profit-positive' : trade.profitPercent < 0 ? 'profit-negative' : '';
                     
                     historyHtml += `
                         <tr>
-                            <td>${trade.timestamp}</td>
+                            <td style="font-size: 12px;">${trade.timestamp}</td>
                             <td>${trade.coin}</td>
                             <td><span class="side-tag side-${trade.type === 'LONG' ? 'long' : 'short'}">${trade.type}</span></td>
                             <td>${trade.leverage || '1'}x</td>
                             <td>$${trade.entryPrice?.toFixed(2) || 'N/A'}</td>
                             <td>$${trade.exitPrice?.toFixed(2) || 'N/A'}</td>
-                            <td class="${profitClass}">${profit}</td>
+                            <td style="color: ${profit.includes('-') ? '#e74c3c' : profit === '-' ? 'white' : '#27ae60'}">${profit}</td>
                         </tr>
                     `;
                 });
                 document.getElementById('tradeHistory').innerHTML = historyHtml || '<tr><td colspan="7">Нет сделок</td></tr>';
 
-                // Лог философского анализа — ОБНОВЛЯЕТСЯ КАЖДЫЕ 3 СЕКУНДЫ!
+                // Лог философского анализа
                 const now = new Date().toLocaleTimeString();
                 let logHtml = '';
                 
@@ -454,7 +404,6 @@
 
             } catch (error) {
                 console.error('Ошибка обновления:', error);
-                document.getElementById('statusBar').innerText = `Вася отдыхает... Ошибка: ${error.message}`;
             }
         }
 
@@ -484,7 +433,6 @@
             }
         }
 
-        // Функция переключения режима
         async function toggleMode() {
             try {
                 const response = await fetch('/api/toggleMode', {
@@ -494,8 +442,7 @@
 
                 const result = await response.json();
                 if (result.success) {
-                    document.getElementById('modeStatus').innerText = `Текущий режим: ${result.isRealMode ? 'РЕАЛЬНЫЙ' : 'ДЕМО'}`;
-                    updateState(); // Обновляем интерфейс
+                    updateState();
                     alert(result.message);
                 } else {
                     alert('Ошибка: ' + result.message);
@@ -505,40 +452,7 @@
             }
         }
 
-        // Функция отправки тестового уведомления
-        function sendTestNotification() {
-            if (Notification.permission === 'granted') {
-                navigator.serviceWorker.ready.then(reg => {
-                    reg.showNotification('Тестовое уведомление от Васи 3000', {
-                        body: 'Если вы это видите — Push-уведомления работают!',
-                        icon: '/icon-192.png',
-                        vibrate: [200, 100, 200]
-                    });
-                });
-            } else {
-                alert('Сначала разрешите уведомления в браузере!');
-            }
-        }
-
-        // Регистрация сервис-воркера
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js')
-                    .then(reg => {
-                        console.log('✅ SW зарегистрирован:', reg.scope);
-                        
-                        // Запрос разрешения на уведомления
-                        Notification.requestPermission().then(permission => {
-                            if (permission === 'granted') {
-                                console.log('🔔 Уведомления разрешены');
-                            }
-                        });
-                    })
-                    .catch(err => console.log('❌ Ошибка регистрации SW:', err));
-            });
-        }
-
-        // Обновляем каждые 3 секунды — РЕАЛЬНОЕ ВРЕМЯ!
+        // Обновляем каждые 3 секунды
         setInterval(updateState, 3000);
         updateState(); // Первый запуск
     </script>
