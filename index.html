@@ -25,7 +25,7 @@
         }
         body { 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            background: linear-gradient(135deg, #0f0f1a, #16213e, #0f3460);
+            background: #0b0e11;
             color: var(--text-color); 
             padding: 15px; 
             max-width: 1400px; 
@@ -47,13 +47,12 @@
             backdrop-filter: blur(10px);
         }
         .section { 
-            background: rgba(255,255,255,0.08); 
-            backdrop-filter: blur(10px);
+            background: #1e222d;
             padding: 20px; 
             border-radius: 15px; 
             margin-bottom: 20px; 
             box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-            border: 1px solid rgba(255,255,255,0.1);
+            border: 1px solid #2d3341;
         }
         .dashboard-grid {
             display: grid;
@@ -67,7 +66,7 @@
             }
         }
         .market-overview {
-            background: rgba(255,255,255,0.1);
+            background: #232a3a;
             padding: 15px;
             border-radius: 10px;
             margin-bottom: 20px;
@@ -90,7 +89,7 @@
             margin: 15px 0;
         }
         .price-item {
-            background: rgba(255,255,255,0.1);
+            background: #2d3341;
             padding: 10px;
             border-radius: 8px;
             text-align: center;
@@ -98,25 +97,35 @@
         }
         .price-item:hover {
             transform: translateY(-3px);
-            background: rgba(255,255,255,0.2);
+            background: #3a4254;
+        }
+        .news-ticker {
+            background: #232a3a;
+            padding: 10px;
+            border-radius: 8px;
+            margin: 15px 0;
+            overflow: hidden;
+            white-space: nowrap;
+            box-sizing: border-box;
+        }
+        .news-ticker-content {
+            display: inline-block;
+            animation: scrollNews 30s linear infinite;
+            padding-left: 100%;
+        }
+        @keyframes scrollNews {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-100%); }
         }
         .news-item {
-            background: rgba(255,255,255,0.1);
-            padding: 15px;
-            border-radius: 10px;
-            margin: 10px 0;
-            border-left: 4px solid var(--neutral-color);
-            transition: all 0.3s ease;
+            display: inline-block;
+            margin-right: 50px;
+            color: #e0e0e0;
         }
-        .news-item:hover {
-            background: rgba(255,255,255,0.15);
-        }
-        .positive { border-left-color: var(--greed-color); }
-        .negative { border-left-color: var(--fear-color); }
-        .trend-bull { color: var(--greed-color); font-weight: bold; }
-        .trend-bear { color: var(--fear-color); font-weight: bold; }
+        .positive { color: var(--greed-color); }
+        .negative { color: var(--fear-color); }
         .controls-panel {
-            background: rgba(255,255,255,0.1);
+            background: #232a3a;
             padding: 20px;
             border-radius: 15px;
             margin-bottom: 20px;
@@ -136,18 +145,18 @@
             padding: 12px 15px;
             border: none;
             border-radius: 8px;
-            background: rgba(255,255,255,0.1);
+            background: #2d3341;
             color: white;
             cursor: pointer;
             transition: all 0.3s ease;
             font-weight: bold;
         }
         .risk-btn.active {
-            background: rgba(248, 165, 194, 0.5);
-            color: #f8a5c2;
+            background: #f8a5c2;
+            color: #1a1a2e;
         }
         .risk-btn:hover {
-            background: rgba(255,255,255,0.2);
+            background: #3a4254;
         }
         .extreme-risk {
             background: rgba(231, 76, 60, 0.3) !important;
@@ -160,12 +169,12 @@
             margin: 20px 0; 
         }
         .stat-card { 
-            background: rgba(255,255,255,0.1); 
+            background: #2d3341;
             padding: 15px; 
             border-radius: 10px; 
             text-align: center; 
             backdrop-filter: blur(5px);
-            border: 1px solid rgba(255,255,255,0.2);
+            border: 1px solid #3a4254;
             transition: transform 0.3s ease;
         }
         .stat-card:hover {
@@ -173,13 +182,13 @@
         }
         .progress-bar-container { 
             margin: 15px 0; 
-            background: rgba(0,0,0,0.3);
+            background: #232a3a;
             padding: 10px;
             border-radius: 10px;
         }
         .progress-bar { 
             height: 25px; 
-            background: rgba(0,0,0,0.4); 
+            background: #2d3341;
             border-radius: 10px; 
             overflow: hidden;
             position: relative;
@@ -197,12 +206,12 @@
             gap: 15px;
             margin: 15px 0;
             flex-wrap: wrap;
-            background: rgba(255,255,255,0.1);
+            background: #232a3a;
             padding: 10px;
             border-radius: 15px;
         }
         .menu-item {
-            background: rgba(255,255,255,0.1);
+            background: #2d3341;
             padding: 8px 15px;
             border-radius: 8px;
             cursor: pointer;
@@ -210,14 +219,14 @@
             transition: all 0.3s ease;
         }
         .menu-item:hover {
-            background: rgba(255,255,255,0.2);
+            background: #3a4254;
         }
         .menu-item.active {
-            background: rgba(248, 165, 194, 0.3);
-            color: #f8a5c2;
+            background: #f8a5c2;
+            color: #1a1a2e;
         }
         .newsletter {
-            background: rgba(255,255,255,0.1);
+            background: #232a3a;
             padding: 20px;
             border-radius: 15px;
             margin: 20px 0;
@@ -226,14 +235,14 @@
             padding: 10px 20px; 
             margin: 5px; 
             border-radius: 8px; 
-            border: 2px solid rgba(255,255,255,0.3); 
-            background: rgba(255,255,255,0.1);
+            border: 2px solid #3a4254;
+            background: #2d3341;
             color: white;
             font-size: 14px;
             font-weight: bold;
         }
         input { 
-            background: rgba(0,0,0,0.2); 
+            background: #1e222d;
             color: white;
             width: 200px;
         }
@@ -257,7 +266,7 @@
         .time-display {
             text-align: center;
             padding: 10px;
-            background: rgba(255,255,255,0.1);
+            background: #232a3a;
             border-radius: 10px;
             margin: 10px 0;
             font-weight: bold;
@@ -271,17 +280,17 @@
             padding: 10px 15px;
             border: none;
             border-radius: 8px;
-            background: rgba(255,255,255,0.1);
+            background: #2d3341;
             color: white;
             cursor: pointer;
             transition: all 0.3s ease;
         }
         .trade-btn.active {
-            background: rgba(46, 204, 113, 0.5);
-            color: #2ecc71;
+            background: #4ecdc4;
+            color: #1a1a2e;
         }
         .trade-btn:hover {
-            background: rgba(255,255,255,0.2);
+            background: #3a4254;
         }
         .loading {
             text-align: center;
@@ -289,7 +298,7 @@
             color: #bdc3c7;
         }
         .log-entry {
-            background: rgba(255,255,255,0.05);
+            background: #232a3a;
             padding: 8px;
             border-radius: 8px;
             margin: 5px 0;
@@ -299,8 +308,36 @@
             max-height: 300px;
             overflow-y: auto;
             padding: 10px;
-            background: rgba(0,0,0,0.2);
+            background: #1e222d;
             border-radius: 10px;
+        }
+        .trade-history {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        .trade-history th,
+        .trade-history td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #2d3341;
+        }
+        .trade-history th {
+            background: #2d3341;
+        }
+        .long-trade {
+            color: var(--long-color);
+            font-weight: bold;
+        }
+        .short-trade {
+            color: var(--short-color);
+            font-weight: bold;
+        }
+        .profit-positive {
+            color: var(--long-color);
+        }
+        .profit-negative {
+            color: var(--short-color);
         }
     </style>
 </head>
@@ -308,6 +345,13 @@
     <div class="header">
         <h1>📈 Трейдинг Бот Вася 3000 Уникальный</h1>
         <p><em>Философия + риск-менеджмент + плечо = прибыль</em></p>
+    </div>
+
+    <!-- Бегущая строка новостей -->
+    <div class="news-ticker">
+        <div class="news-ticker-content" id="newsTickerContent">
+            <!-- Новости будут добавлены сюда динамически -->
+        </div>
     </div>
 
     <div class="menu">
@@ -328,11 +372,6 @@
                     <div class="prices-grid" id="pricesDisplay">
                         <div class="loading">Загрузка цен...</div>
                     </div>
-                </div>
-                
-                <h2>📰 Последние новости</h2>
-                <div id="newsDisplay">
-                    <div class="loading">Загрузка новостей...</div>
                 </div>
             </div>
             <div>
@@ -383,10 +422,9 @@
     </div>
 
     <div id="analysis" class="section" style="display: none;">
-        <h2>🧠 Лог философского анализа</h2>
-        <div class="status-bar" id="statusBar">Вася мониторит рынок...</div>
-        <div class="philosophy-log" id="philosophyLog">
-            <div class="loading">Ожидание анализа...</div>
+        <h2>🧠 Активные сделки и прогресс</h2>
+        <div id="progressDisplay">
+            <div class="loading">Нет открытых позиций</div>
         </div>
     </div>
 
@@ -411,22 +449,17 @@
             </div>
         </div>
 
-        <h2>🎯 Прогресс открытых сделок</h2>
-        <div id="progressDisplay">
-            <div class="loading">Нет открытых позиций</div>
-        </div>
-
         <h2>📜 История сделок</h2>
-        <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+        <table class="trade-history">
             <thead>
-                <tr style="background: rgba(255,255,255,0.1);">
-                    <th style="padding: 10px; text-align: left;">Время</th>
-                    <th style="padding: 10px; text-align: left;">Монета</th>
-                    <th style="padding: 10px; text-align: left;">Тип</th>
-                    <th style="padding: 10px; text-align: left;">Плечо</th>
-                    <th style="padding: 10px; text-align: left;">Цена входа</th>
-                    <th style="padding: 10px; text-align: left;">Цена выхода</th>
-                    <th style="padding: 10px; text-align: left;">Прибыль</th>
+                <tr>
+                    <th>Время</th>
+                    <th>Монета</th>
+                    <th>Тип</th>
+                    <th>Плечо</th>
+                    <th>Цена входа</th>
+                    <th>Цена выхода</th>
+                    <th>Прибыль</th>
                 </tr>
             </thead>
             <tbody id="tradeHistory">
@@ -457,8 +490,8 @@
                 <li><strong>ДЕМО-РЕЖИМ:</strong> Бот торгует виртуальными деньгами с той же логикой и комиссиями.</li>
                 <li><strong>ВАЖНО:</strong> Перед торговлей в реальном режиме переведите USDT на <strong>фьючерсный счет</strong> в интерфейсе BingX.</li>
                 <li><strong>ТЕСТ API:</strong> Кнопка "Тест API" открывает реальную позицию с риском 30% от вашего баланса (не 30% баланса).</li>
-                <li><strong>АНАЛИЗ:</strong> Здесь отображаются активные сделки и лог философского анализа.</li>
-                <li><strong>ИСТОРИЯ:</strong> Здесь отображаются только завершённые сделки.</li>
+                <li><strong>АНАЛИЗ:</strong> Здесь отображаются только активные сделки с прогрессом.</li>
+                <li><strong>ИСТОРИЯ:</strong> Здесь отображается статистика и завершённые сделки.</li>
                 <li><strong>РИСК-МЕНЕДЖМЕНТ:</strong> Бот всегда рискует только заданным процентом от депозита (по умолчанию 1%).</li>
             </ul>
             <button onclick="document.getElementById('helperModal').style.display='none'" style="width: 100%; padding: 10px; margin-top: 15px; background: linear-gradient(45deg, #3498db, #2c3e50); color: white; border: none; border-radius: 8px; cursor: pointer;">Понятно</button>
@@ -530,8 +563,8 @@
                         hasOpen = true;
                         const isLong = position.type === 'LONG';
                         positionsHtml += `
-                            <div style="margin: 5px 0; padding: 8px; background: rgba(255,255,255,0.1); border-radius: 8px;">
-                                → ${coin}: <span style="color: ${isLong ? '#27ae60' : '#e74c3c'}; font-weight: bold;">${position.type}</span> 
+                            <div style="margin: 5px 0; padding: 8px; background: #232a3a; border-radius: 8px;">
+                                → ${coin}: <span class="${isLong ? 'long-trade' : 'short-trade'}">${position.type}</span> 
                                 ${position.size?.toFixed(6) || '?'} @ $${position.entryPrice?.toFixed(2) || '?'}
                             </div>
                         `;
@@ -539,7 +572,7 @@
                 }
                 document.getElementById('openPositions').innerHTML = hasOpen ? positionsHtml : 'Нет открытых позиций';
 
-                // Прогресс сделок
+                // Прогресс сделок (в разделе "Анализ")
                 let progressHtml = '';
                 state.history.forEach(trade => {
                     if (trade.status === 'OPEN') {
@@ -560,7 +593,7 @@
                                 </div>
                                 <div style="display: flex; justify-content: space-between; font-size: 12px; margin-top: 5px;">
                                     <span>Вероятность: ${probability.toFixed(0)}%</span>
-                                    <span style="color: ${isLong ? '#27ae60' : '#e74c3c'};">${trade.type}</span>
+                                    <span class="${isLong ? 'long-trade' : 'short-trade'}">${trade.type}</span>
                                 </div>
                             </div>
                         `;
@@ -581,7 +614,7 @@
                             <tr>
                                 <td style="padding: 8px; font-size: 12px;">${trade.timestamp}</td>
                                 <td style="padding: 8px;">${trade.coin}</td>
-                                <td style="padding: 8px;"><span style="color: ${isLong ? '#27ae60' : '#e74c3c'}; font-weight: bold;">${trade.type}</span></td>
+                                <td style="padding: 8px;"><span class="${isLong ? 'long-trade' : 'short-trade'}">${trade.type}</span></td>
                                 <td style="padding: 8px;">${trade.leverage || '1'}x</td>
                                 <td style="padding: 8px;">$${trade.entryPrice?.toFixed(2) || 'N/A'}</td>
                                 <td style="padding: 8px;">$${trade.exitPrice?.toFixed(2) || 'N/A'}</td>
@@ -594,35 +627,6 @@
                 }
                 document.getElementById('tradeHistory').innerHTML = historyHtml;
 
-                // Лог философского анализа (включая активные сделки)
-                const now = new Date().toLocaleTimeString();
-                let logHtml = '';
-                
-                if (state.stats.totalTrades === 0 && lastLog !== 'init') {
-                    logHtml = `<div class="log-entry">[${now}] ⚪ Вася 3000 анализирует рынок с философской точки зрения...</div>`;
-                    lastLog = 'init';
-                } else if (state.stats.totalTrades > 0 && lastLog !== 'trade') {
-                    logHtml = `<div class="log-entry">[${now}] 💎 ВАСЯ 3000 НАШЁЛ УНИКАЛЬНУЮ ВОЗМОЖНОСТЬ: закон сохранения энергии + эффект бабочки</div>`;
-                    lastLog = 'trade';
-                } else {
-                    logHtml = `<div class="log-entry">[${now}] 🔍 Вася продолжает мониторить рынок...</div>`;
-                }
-
-                // Добавляем информацию об активных позициях в лог
-                for (const [coin, position] of Object.entries(state.positions)) {
-                    if (position && position.type) {
-                        const isLong = position.type === 'LONG';
-                        logHtml += `
-                            <div class="log-entry" style="border-left: 4px solid ${isLong ? '#27ae60' : '#e74c3c'};">
-                                📈 АКТИВНАЯ ПОЗИЦИЯ: ${coin} — ${position.type} @ $${position.entryPrice?.toFixed(2)} (Плечо: ${position.leverage}x)
-                            </div>
-                        `;
-                    }
-                }
-
-                document.getElementById('philosophyLog').innerHTML = logHtml;
-                document.getElementById('statusBar').innerText = `Вася мониторит рынок... Последнее обновление: ${now}`;
-
                 // Обновляем время
                 document.getElementById('timeDisplay').innerText = `🕒 Текущее время: ${new Date().toLocaleString()}`;
 
@@ -631,6 +635,9 @@
 
                 // Обновляем цены
                 updatePricesDisplay(state.currentPrices);
+
+                // Обновляем бегущую строку новостей
+                updateNewsTicker(state.marketMemory.news || []);
 
             } catch (error) {
                 console.error('Ошибка обновления:', error);
@@ -672,39 +679,37 @@
             document.getElementById('pricesDisplay').innerHTML = pricesHtml || '<div class="loading">Загрузка цен...</div>';
         }
 
+        function updateNewsTicker(news) {
+            let tickerHtml = '';
+            if (news && news.length > 0) {
+                news.forEach(item => {
+                    let trendClass = '';
+                    if (item.sentiment === 'positive') {
+                        trendClass = 'positive';
+                    } else if (item.sentiment === 'negative') {
+                        trendClass = 'negative';
+                    }
+                    
+                    tickerHtml += `
+                        <span class="news-item ${trendClass}">
+                            ${item.title} ${item.trend} (${item.change24h}) •
+                        </span>
+                    `;
+                });
+            } else {
+                tickerHtml = '<span class="news-item">Нет новостей •</span>';
+            }
+            document.getElementById('newsTickerContent').innerHTML = tickerHtml;
+        }
+
         // Функция обновления рыночных данных
         async function updateMarketData() {
             try {
                 const newsResponse = await fetch('/api/news');
                 const newsData = await newsResponse.json();
                 
-                let newsHtml = '';
-                if (newsData.news && newsData.news.length > 0) {
-                    newsData.news.forEach(item => {
-                        let sentimentClass = 'neutral';
-                        let trendClass = '';
-                        if (item.sentiment === 'positive') {
-                            sentimentClass = 'positive';
-                            trendClass = 'trend-bull';
-                        } else if (item.sentiment === 'negative') {
-                            sentimentClass = 'negative';
-                            trendClass = 'trend-bear';
-                        }
-                        
-                        newsHtml += `
-                            <div class="news-item ${sentimentClass}">
-                                <div style="font-weight: bold; margin-bottom: 5px;">${item.title}</div>
-                                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
-                                    <span>${item.source}</span>
-                                    <span class="${trendClass}">${item.trend} (${item.change24h})</span>
-                                </div>
-                            </div>
-                        `;
-                    });
-                } else {
-                    newsHtml = '<div class="loading">Нет новостей</div>';
-                }
-                document.getElementById('newsDisplay').innerHTML = newsHtml;
+                globalState.marketMemory.news = newsData.news || [];
+                updateNewsTicker(globalState.marketMemory.news);
 
             } catch (error) {
                 console.error('Ошибка обновления рыночных данных:', error);
