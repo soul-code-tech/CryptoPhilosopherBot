@@ -227,8 +227,10 @@
         <div class="deposit-section">
             <input type="number" id="depositAmount" placeholder="Сумма пополнения" step="1" min="1">
             <button onclick="depositFunds()">Пополнить демо-баланс</button>
-            <button onclick="toggleMode()">🔄 Переключить режим</button>
-            <div id="modeStatus">Текущий режим: ДЕМО</div>
+            <button onclick="toggleMode()">🔄 Режим: <span id="modeToggleText">ДЕМО</span></button>
+            <button onclick="toggleTradeMode()">⚡ Торговля: <span id="tradeModeText">Стабильная</span></button>
+            <button onclick="toggleTestMode()">🧪 <span id="testModeText">Тест OFF</span></button>
+            <button onclick="forceUpdateBalance()">🔄 Обновить баланс</button>
         </div>
         <div id="balanceDisplay">
             <div>📊 Демо-баланс: $0.00</div>
@@ -306,12 +308,17 @@
                 item.classList.remove('active');
             });
             
-            // Найти кнопку по data-section или по тексту
-            const activeButton = Array.from(document.querySelectorAll('.menu-item'))
-                .find(btn => btn.textContent.includes(sectionId === 'dashboard' ? 'Панель' : 
-                                      sectionId === 'analysis' ? 'Анализ' : 'История'));
-            if (activeButton) {
-                activeButton.classList.add('active');
+            // Находим активную кнопку по тексту
+            const buttons = document.querySelectorAll('.menu-item');
+            for (let btn of buttons) {
+                if (
+                    (sectionId === 'dashboard' && btn.textContent.includes('Панель')) ||
+                    (sectionId === 'analysis' && btn.textContent.includes('Анализ')) ||
+                    (sectionId === 'history' && btn.textContent.includes('История'))
+                ) {
+                    btn.classList.add('active');
+                    break;
+                }
             }
             
             currentSection = sectionId;
@@ -328,7 +335,9 @@
                     <div>🏦 Реальный баланс: $${state.realBalance?.toFixed(2) || 'Загрузка...'}</div>
                 `;
 
-                document.getElementById('modeStatus').innerText = `Текущий режим: ${state.isRealMode ? 'РЕАЛЬНЫЙ' : 'ДЕМО'}`;
+                document.getElementById('modeToggleText').innerText = state.isRealMode ? 'РЕАЛЬНЫЙ' : 'ДЕМО';
+                document.getElementById('tradeModeText').innerText = state.tradeMode === 'scalping' ? 'Скальпинг' : 'Стабильная';
+                document.getElementById('testModeText').innerText = state.testMode ? 'Тест ON' : 'Тест OFF';
 
                 // Открытые позиции
                 let positionsHtml = '';
@@ -353,6 +362,9 @@
                             <div class="progress-bar-container">
                                 <div style="font-weight: bold; margin-bottom: 5px; font-size: 13px;">
                                     ${trade.coin} — ${trade.type} (Плечо: ${trade.leverage}x)
+                                </div>
+                                <div style="font-size: 12px; margin-bottom: 5px;">
+                                    Текущая: $${trade.currentPrice?.toFixed(2) || '?'} | Вход: $${trade.entryPrice?.toFixed(2) || '?'} | Цель: $${trade.takeProfit?.toFixed(2) || '?'}
                                 </div>
                                 <div class="progress-bar">
                                     <div class="progress-fill" style="width: ${progress}%;"></div>
@@ -444,6 +456,63 @@
                 if (result.success) {
                     updateState();
                     alert(result.message);
+                } else {
+                    alert('Ошибка: ' + result.message);
+                }
+            } catch (error) {
+                alert('Ошибка соединения с сервером');
+            }
+        }
+
+        async function toggleTradeMode() {
+            try {
+                const response = await fetch('/api/toggleTradeMode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    updateState();
+                    alert(result.message);
+                } else {
+                    alert('Ошибка: ' + result.message);
+                }
+            } catch (error) {
+                alert('Ошибка соединения с сервером');
+            }
+        }
+
+        async function toggleTestMode() {
+            try {
+                const response = await fetch('/api/toggleTestMode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    updateState();
+                    alert(result.message);
+                } else {
+                    alert('Ошибка: ' + result.message);
+                }
+            } catch (error) {
+                alert('Ошибка соединения с сервером');
+            }
+        }
+
+        async function forceUpdateBalance() {
+            try {
+                const response = await fetch('/api/forceUpdateBalance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    alert('Запрошено обновление баланса');
+                    updateState();
                 } else {
                     alert('Ошибка: ' + result.message);
                 }
