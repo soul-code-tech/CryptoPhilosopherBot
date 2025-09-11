@@ -245,6 +245,12 @@
         button:hover { 
             background: linear-gradient(45deg, #2980b9, #1a252f);
         }
+        .test-btn {
+            background: linear-gradient(45deg, #e74c3c, #c0392b) !important;
+        }
+        .update-btn {
+            background: linear-gradient(45deg, #27ae60, #229954) !important;
+        }
         .time-display {
             text-align: center;
             padding: 10px;
@@ -274,6 +280,11 @@
         .trade-btn:hover {
             background: rgba(255,255,255,0.2);
         }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #bdc3c7;
+        }
     </style>
 </head>
 <body>
@@ -298,13 +309,13 @@
                     <div class="fear-greed-container" id="fearGreedDisplay">Загрузка...</div>
                     <h3>Текущие цены</h3>
                     <div class="prices-grid" id="pricesDisplay">
-                        Загрузка...
+                        <div class="loading">Загрузка цен...</div>
                     </div>
                 </div>
                 
                 <h2>📰 Последние новости</h2>
                 <div id="newsDisplay">
-                    Загрузка новостей...
+                    <div class="loading">Загрузка новостей...</div>
                 </div>
             </div>
             <div>
@@ -333,9 +344,10 @@
                         </div>
                     </div>
                     
-                    <div style="margin: 15px 0;">
+                    <div style="margin: 15px 0; display: flex; gap: 10px; flex-wrap: wrap;">
                         <button onclick="toggleMode()">🔄 Переключить режим: <span id="modeToggleText">ДЕМО</span></button>
-                        <button onclick="forceUpdateBalance()">🔄 Обновить баланс</button>
+                        <button onclick="forceUpdateBalance()" class="update-btn">💰 Обновить баланс</button>
+                        <button onclick="testBingXAPI()" class="test-btn">🧪 Тест API (30% баланса)</button>
                     </div>
                 </div>
                 
@@ -345,7 +357,9 @@
                 </div>
                 
                 <h3>📊 Открытые позиции</h3>
-                <div id="openPositions">Загрузка...</div>
+                <div id="openPositions">
+                    <div class="loading">Загрузка позиций...</div>
+                </div>
             </div>
         </div>
     </div>
@@ -353,7 +367,9 @@
     <div id="analysis" class="section" style="display: none;">
         <h2>🧠 Лог философского анализа</h2>
         <div class="status-bar" id="statusBar">Вася мониторит рынок...</div>
-        <div id="philosophyLog">Ожидание анализа...</div>
+        <div id="philosophyLog">
+            <div class="loading">Ожидание анализа...</div>
+        </div>
     </div>
 
     <div id="history" class="section" style="display: none;">
@@ -378,23 +394,27 @@
         </div>
 
         <h2>🎯 Прогресс открытых сделок</h2>
-        <div id="progressDisplay">Нет открытых позиций</div>
+        <div id="progressDisplay">
+            <div class="loading">Нет открытых позиций</div>
+        </div>
 
         <h2>📜 История сделок</h2>
-        <table>
+        <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
             <thead>
-                <tr>
-                    <th>Время</th>
-                    <th>Монета</th>
-                    <th>Тип</th>
-                    <th>Плечо</th>
-                    <th>Цена входа</th>
-                    <th>Цена выхода</th>
-                    <th>Прибыль</th>
+                <tr style="background: rgba(255,255,255,0.1);">
+                    <th style="padding: 10px; text-align: left;">Время</th>
+                    <th style="padding: 10px; text-align: left;">Монета</th>
+                    <th style="padding: 10px; text-align: left;">Тип</th>
+                    <th style="padding: 10px; text-align: left;">Плечо</th>
+                    <th style="padding: 10px; text-align: left;">Цена входа</th>
+                    <th style="padding: 10px; text-align: left;">Цена выхода</th>
+                    <th style="padding: 10px; text-align: left;">Прибыль</th>
                 </tr>
             </thead>
             <tbody id="tradeHistory">
-                <tr><td colspan="7">Загрузка истории...</td></tr>
+                <tr>
+                    <td colspan="7" style="padding: 20px; text-align: center; color: #bdc3c7;">Загрузка истории...</td>
+                </tr>
             </tbody>
         </table>
     </div>
@@ -522,17 +542,17 @@
                     
                     historyHtml += `
                         <tr>
-                            <td style="font-size: 12px;">${trade.timestamp}</td>
-                            <td>${trade.coin}</td>
-                            <td><span style="color: ${isLong ? '#27ae60' : '#e74c3c'}; font-weight: bold;">${trade.type}</span></td>
-                            <td>${trade.leverage || '1'}x</td>
-                            <td>$${trade.entryPrice?.toFixed(2) || 'N/A'}</td>
-                            <td>$${trade.exitPrice?.toFixed(2) || 'N/A'}</td>
-                            <td style="color: ${profit.includes('-') ? '#e74c3c' : profit === '-' ? 'white' : '#27ae60'}">${profit}</td>
+                            <td style="padding: 8px; font-size: 12px;">${trade.timestamp}</td>
+                            <td style="padding: 8px;">${trade.coin}</td>
+                            <td style="padding: 8px;"><span style="color: ${isLong ? '#27ae60' : '#e74c3c'}; font-weight: bold;">${trade.type}</span></td>
+                            <td style="padding: 8px;">${trade.leverage || '1'}x</td>
+                            <td style="padding: 8px;">$${trade.entryPrice?.toFixed(2) || 'N/A'}</td>
+                            <td style="padding: 8px;">$${trade.exitPrice?.toFixed(2) || 'N/A'}</td>
+                            <td style="padding: 8px; color: ${profit.includes('-') ? '#e74c3c' : profit === '-' ? 'white' : '#27ae60'}">${profit}</td>
                         </tr>
                     `;
                 });
-                document.getElementById('tradeHistory').innerHTML = historyHtml || '<tr><td colspan="7">Нет сделок</td></tr>';
+                document.getElementById('tradeHistory').innerHTML = historyHtml || '<tr><td colspan="7" style="padding: 20px; text-align: center;">Нет сделок</td></tr>';
 
                 // Лог философского анализа
                 const now = new Date().toLocaleTimeString();
@@ -597,7 +617,7 @@
                     `;
                 }
             }
-            document.getElementById('pricesDisplay').innerHTML = pricesHtml || 'Загрузка цен...';
+            document.getElementById('pricesDisplay').innerHTML = pricesHtml || '<div class="loading">Загрузка цен...</div>';
         }
 
         // Функция обновления рыночных данных
@@ -630,7 +650,7 @@
                         `;
                     });
                 } else {
-                    newsHtml = '<div>Нет новостей</div>';
+                    newsHtml = '<div class="loading">Нет новостей</div>';
                 }
                 document.getElementById('newsDisplay').innerHTML = newsHtml;
 
@@ -734,10 +754,33 @@
 
                 const result = await response.json();
                 if (result.success) {
-                    alert('Запрошено обновление баланса');
+                    alert('✅ Баланс успешно обновлён: $' + result.balance.toFixed(2));
                     updateState();
                 } else {
-                    alert('Ошибка: ' + result.message);
+                    alert('❌ Ошибка: ' + result.message);
+                }
+            } catch (error) {
+                alert('Ошибка соединения с сервером');
+            }
+        }
+
+        async function testBingXAPI() {
+            if (!confirm('Вы уверены? Это откроет РЕАЛЬНУЮ позицию на 30% от вашего баланса на BingX.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/testBingX', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    alert('✅ ' + result.message);
+                    updateState();
+                } else {
+                    alert('❌ ' + result.message);
                 }
             } catch (error) {
                 alert('Ошибка соединения с сервером');
