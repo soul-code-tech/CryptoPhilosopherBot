@@ -23,12 +23,13 @@ let globalState = {
     lastTrades: {},
     consecutiveTrades: {},
     volatilityHistory: {},
-    fearSentimentHistory: []
+    fearSentimentHistory: [],
+    marketNews: []
   },
   isRunning: true,
   takerFee: 0.0005,
-  maxRiskPerTrade: 0.01,
-  maxLeverage: 3,
+  maxRiskPerTrade: 0.01,  // 1% от депозита
+  maxLeverage: 3,         // 3x плечо
   watchlist: [
     { symbol: 'BTC', name: 'bitcoin' },
     { symbol: 'ETH', name: 'ethereum' },
@@ -41,8 +42,11 @@ let globalState = {
     { symbol: 'LINK', name: 'chainlink' }
   ],
   isRealMode: false,
-  tradeMode: 'stable',
-  testMode: false
+  tradeMode: 'stable',    // 'stable' или 'scalping'
+  riskLevel: 'recommended', // 'recommended', 'medium', 'high', 'extreme'
+  testMode: false,
+  currentPrices: {},
+  fearIndex: 50
 };
 
 globalState.watchlist.forEach(coin => {
@@ -71,7 +75,7 @@ function signBingXRequest(params) {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение Fear & Greed Index — ОБЪЯВЛЕНА ДО ЦИКЛА!
+// ФУНКЦИЯ: Получение Fear & Greed Index
 // ==========================
 async function getFearAndGreedIndex() {
   try {
@@ -81,15 +85,17 @@ async function getFearAndGreedIndex() {
     if (globalState.marketMemory.fearSentimentHistory.length > 24) {
       globalState.marketMemory.fearSentimentHistory.shift();
     }
+    globalState.fearIndex = value;
     return value;
   } catch (e) {
     console.log('⚠️ Не удалось получить индекс страха — используем 50');
+    globalState.fearIndex = 50;
     return 50;
   }
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение реального баланса с BingX Futures — ИСПРАВЛЕНА!
+// ФУНКЦИЯ: Получение реального баланса с BingX Futures
 // ==========================
 async function getBingXRealBalance() {
   try {
@@ -117,12 +123,12 @@ async function getBingXRealBalance() {
     if (response.data.code === 0 && response.data.data) {
       let usdtBalance = null;
 
-      // ВАРИАНТ 1: BingX вернул { data: { balance: { asset: 'USDT', balance: '0.5384' } } }
+      // ВАРИАНТ 1: BingX вернул {  { balance: { asset: 'USDT', balance: '0.5384' } } }
       if (response.data.data.balance && response.data.data.balance.asset === 'USDT') {
         usdtBalance = parseFloat(response.data.data.balance.balance);
         console.log(`💰 [БАЛАНС] Найден баланс в data.balance: $${usdtBalance.toFixed(2)}`);
       }
-      // ВАРИАНТ 2: BingX вернул { data: { assets: [...] } }
+      // ВАРИАНТ 2: BingX вернул {  { assets: [...] } }
       else if (response.data.data.assets && Array.isArray(response.data.data.assets)) {
         const usdtAsset = response.data.data.assets.find(asset => asset.asset === 'USDT');
         if (usdtAsset && usdtAsset.walletBalance) {
@@ -130,7 +136,7 @@ async function getBingXRealBalance() {
           console.log(`💰 [БАЛАНС] Найден баланс в assets: $${usdtBalance.toFixed(2)}`);
         }
       }
-      // ВАРИАНТ 3: BingX вернул { data: [...] } (массив)
+      // ВАРИАНТ 3: BingX вернул {  [...] } (массив)
       else if (Array.isArray(response.data.data)) {
         const assetsArray = response.data.data;
         const usdtAsset = assetsArray.find(asset => asset.asset === 'USDT');
@@ -198,41 +204,59 @@ function toggleMode() {
 function toggleTradeMode() {
   globalState.tradeMode = globalState.tradeMode === 'stable' ? 'scalping' : 'stable';
   
-  if (globalState.tradeMode === 'stable') {
-    globalState.maxRiskPerTrade = 0.01;
-    globalState.maxLeverage = 3;
-    console.log('📉 Переключён на СТАБИЛЬНЫЙ режим: риск 1%, плечо 3x');
-  } else {
-    globalState.maxRiskPerTrade = 0.02;
-    globalState.maxLeverage = 5;
-    console.log('⚡ Переключён на СКАЛЬПИНГ: риск 2%, плечо 5x (ВЫСОКИЙ РИСК!)');
-  }
+  // При переключении режима — сохраняем текущий уровень риска, но обновляем параметры
+  setRiskLevel(globalState.riskLevel);
   
+  console.log(`⚡ Торговый режим переключён на: ${globalState.tradeMode}`);
   return globalState.tradeMode;
 }
 
 // ==========================
-// ФУНКЦИЯ: Включение тестового режима
+// ФУНКЦИЯ: Установка уровня риска
 // ==========================
-function toggleTestMode() {
-  globalState.testMode = !globalState.testMode;
+function setRiskLevel(level) {
+  globalState.riskLevel = level;
   
-  if (globalState.testMode) {
-    globalState.maxRiskPerTrade = 0.05;
-    globalState.maxLeverage = 10;
-    console.log('🧪 ВКЛЮЧЁН ТЕСТОВЫЙ РЕЖИМ: риск 5%, плечо 10x (ЭКСТРЕМАЛЬНЫЙ РИСК!)');
+  // Базовые настройки в зависимости от торгового режима
+  if (globalState.tradeMode === 'scalping') {
+    // Для скальпинга — более агрессивные стопы и тейки
+    globalState.scalpingSettings = {
+      takeProfitPercent: 0.01, // +1%
+      stopLossPercent: 0.005   // -0.5%
+    };
   } else {
-    if (globalState.tradeMode === 'stable') {
-      globalState.maxRiskPerTrade = 0.01;
+    // Для стабильного режима — более консервативные
+    globalState.scalpingSettings = {
+      takeProfitPercent: 0.03, // +3%
+      stopLossPercent: 0.02   // -2%
+    };
+  }
+
+  // Устанавливаем риск и плечо в зависимости от уровня
+  switch(level) {
+    case 'recommended':
+      globalState.maxRiskPerTrade = 0.01; // 1%
       globalState.maxLeverage = 3;
-    } else {
-      globalState.maxRiskPerTrade = 0.02;
+      console.log('📉 Установлен РЕКОМЕНДУЕМЫЙ уровень риска: 1%, плечо 3x');
+      break;
+    case 'medium':
+      globalState.maxRiskPerTrade = 0.02; // 2%
       globalState.maxLeverage = 5;
-    }
-    console.log('✅ ТЕСТОВЫЙ РЕЖИМ ВЫКЛЮЧЕН');
+      console.log('⚖️ Установлен СРЕДНИЙ уровень риска: 2%, плечо 5x');
+      break;
+    case 'high':
+      globalState.maxRiskPerTrade = 0.05; // 5%
+      globalState.maxLeverage = 10;
+      console.log('🚀 Установлен ВЫСОКИЙ уровень риска: 5%, плечо 10x');
+      break;
+    case 'extreme':
+      globalState.maxRiskPerTrade = 0.10; // 10%
+      globalState.maxLeverage = 20;
+      console.log('💥 Установлен ЭКСТРЕМАЛЬНЫЙ уровень риска: 10%, плечо 20x (ОЧЕНЬ ВЫСОКИЙ РИСК!)');
+      break;
   }
   
-  return globalState.testMode;
+  return globalState.riskLevel;
 }
 
 // ==========================
@@ -268,6 +292,7 @@ async function getCurrentFuturesPrices() {
       prices[coinName] = parseFloat(ticker.price);
     }
 
+    globalState.currentPrices = prices;
     return prices;
   } catch (error) {
     console.error('❌ Ошибка получения цен фьючерсов с BingX:', error.message);
@@ -381,15 +406,16 @@ function analyzeFuturesWithWisdom(candles, coinName, currentFearIndex) {
     signal.leverage = globalState.maxLeverage;
   }
 
+  // Устанавливаем стоп-лосс и тейк-профит в зависимости от режима
   if (signal.direction === 'LONG') {
-    signal.stopLoss = currentPrice * 0.98;
-    signal.takeProfit = currentPrice * 1.03;
+    signal.stopLoss = currentPrice * (1 - (globalState.scalpingSettings?.stopLossPercent || 0.02));
+    signal.takeProfit = currentPrice * (1 + (globalState.scalpingSettings?.takeProfitPercent || 0.03));
   } else if (signal.direction === 'SHORT') {
-    signal.stopLoss = currentPrice * 1.02;
-    signal.takeProfit = currentPrice * 0.97;
+    signal.stopLoss = currentPrice * (1 + (globalState.scalpingSettings?.stopLossPercent || 0.02));
+    signal.takeProfit = currentPrice * (1 - (globalState.scalpingSettings?.takeProfitPercent || 0.03));
   }
 
-  signal.reasoning.push("🌊 Цунами прибыли: 50% позиции закрываем на +3%, остаток в трейлинг-стоп");
+  signal.reasoning.push("🌊 Цунами прибыли: 50% позиции закрываем на цели, остаток в трейлинг-стоп");
 
   return {
     coin: coinName,
@@ -525,7 +551,8 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
 
   console.log(`🌐 Отправка ${direction} ордера на BingX Futures: ${size} ${symbol} с плечом ${leverage}x`);
   console.log(`🔄 Текущий режим: ${globalState.isRealMode ? 'РЕАЛЬНЫЙ' : 'ДЕМО'}`);
-  console.log(`⚡ Торговый режим: ${globalState.tradeMode} (${globalState.testMode ? 'ТЕСТОВЫЙ РЕЖИМ ВКЛЮЧЕН' : 'нормальный'})`);
+  console.log(`⚡ Торговый режим: ${globalState.tradeMode}`);
+  console.log(`💣 Уровень риска: ${globalState.riskLevel}`);
 
   if (globalState.isRealMode) {
     const result = await placeBingXFuturesOrder(symbol, side, positionSide, 'MARKET', size, null, leverage);
@@ -621,18 +648,18 @@ async function checkOpenPositions(currentPrices) {
 
     if (position.side === 'LONG' && currentPrice >= position.takeProfit) {
       shouldClose = true;
-      reason = '🎯 Достигнут тейк-профит +3% — фиксируем 50% прибыли';
+      reason = '🎯 Достигнут тейк-профит — фиксируем 50% прибыли';
     } else if (position.side === 'SHORT' && currentPrice <= position.takeProfit) {
       shouldClose = true;
-      reason = '🎯 Достигнут тейк-профит +3% — фиксируем 50% прибыли';
+      reason = '🎯 Достигнут тейк-профит — фиксируем 50% прибыли';
     }
 
     if (position.side === 'LONG' && currentPrice <= position.stopLoss) {
       shouldClose = true;
-      reason = '🛑 Сработал стоп-лосс -2%';
+      reason = '🛑 Сработал стоп-лосс';
     } else if (position.side === 'SHORT' && currentPrice >= position.stopLoss) {
       shouldClose = true;
-      reason = '🛑 Сработал стоп-лосс -2%';
+      reason = '🛑 Сработал стоп-лосс';
     }
 
     if (shouldClose) {
@@ -734,6 +761,51 @@ function printStats() {
 }
 
 // ==========================
+// ФУНКЦИЯ: Получение новостей крипторынка
+// ==========================
+async function getCryptoNews() {
+  try {
+    // В реальном приложении здесь будет настоящий API
+    // Пока используем демо-новости
+    return [
+      { 
+        title: "Bitcoin突破$60K, 机构资金持续流入", 
+        source: "CryptoNews", 
+        sentiment: "Positive",
+        url: "#"
+      },
+      { 
+        title: "Ethereum ETF Approval Expected in Q3 2024", 
+        source: "CoinDesk", 
+        sentiment: "Positive",
+        url: "#"
+      },
+      { 
+        title: "Market Correction: Altcoins Down 15% This Week", 
+        source: "Cointelegraph", 
+        sentiment: "Negative",
+        url: "#"
+      },
+      { 
+        title: "Solana Network Upgrades Boost Transaction Speed", 
+        source: "The Block", 
+        sentiment: "Positive",
+        url: "#"
+      },
+      { 
+        title: "Regulatory Pressure Increases on Major Exchanges", 
+        source: "Bloomberg Crypto", 
+        sentiment: "Negative",
+        url: "#"
+      }
+    ];
+  } catch (error) {
+    console.error('❌ Ошибка получения новостей:', error.message);
+    return [];
+  }
+}
+
+// ==========================
 // ФУНКЦИЯ: Отправка Push-уведомления
 // ==========================
 async function sendPushNotification(title, body, url = '/') {
@@ -755,15 +827,19 @@ async function sendPushNotification(title, body, url = '/') {
 }
 
 // ==========================
-// ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА — ВСЕ ФУНКЦИИ ОБЪЯВЛЕНЫ ВЫШЕ!
+// ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
 // ==========================
 (async () => {
-  console.log('🤖 ЗАПУСК БОТА v15.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ');
+  console.log('🤖 ЗАПУСК БОТА v16.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ');
   console.log('📌 deposit(сумма) — пополнить демо-баланс');
   console.log('🔄 toggleMode() — переключить режим (ДЕМО ↔ РЕАЛЬНЫЙ)');
   console.log('⚡ toggleTradeMode() — переключить торговый режим (stable ↔ scalping)');
-  console.log('🧪 toggleTestMode() — включить тестовый режим (риск 5%, плечо 10x)');
+  console.log('💣 setRiskLevel() — установить уровень риска (recommended, medium, high, extreme)');
 
+  // Устанавливаем начальный уровень риска
+  setRiskLevel('recommended');
+
+  // Принудительно обновляем реальный баланс при старте
   await forceUpdateRealBalance();
 
   while (globalState.isRunning) {
@@ -773,11 +849,21 @@ async function sendPushNotification(title, body, url = '/') {
       const fearIndex = await getFearAndGreedIndex();
       console.log(`😱 Индекс страха и жадности: ${fearIndex}`);
 
+      // Обновляем реальный баланс каждые 5 минут
       if (Date.now() % 300000 < 10000) {
         await forceUpdateRealBalance();
       }
 
+      // Получаем текущие цены
       const currentPrices = await getCurrentFuturesPrices();
+      globalState.currentPrices = currentPrices;
+      
+      // Получаем новости каждые 30 минут
+      if (Date.now() % 1800000 < 60000) {
+        globalState.marketMemory.news = await getCryptoNews();
+        console.log('📰 Получены последние новости крипторынка');
+      }
+
       await checkOpenPositions(currentPrices);
 
       showOpenPositionsProgress(currentPrices);
@@ -840,6 +926,7 @@ async function sendPushNotification(title, body, url = '/') {
         console.log(`\n⚪ Вася 3000 не видит возможностей — отдыхаем...`);
       }
 
+      // Обновляем статистику (для демо-режима)
       if (!globalState.isRealMode) {
         globalState.stats.totalProfit = globalState.balance - 100;
         if (globalState.balance > globalState.stats.peakBalance) {
@@ -875,7 +962,7 @@ module.exports = {
   deposit,
   toggleMode,
   toggleTradeMode,
-  toggleTestMode,
+  setRiskLevel,
   forceUpdateRealBalance,
   balance: () => globalState.balance,
   stats: () => globalState.stats,
@@ -885,7 +972,7 @@ module.exports = {
 global.deposit = deposit;
 global.toggleMode = toggleMode;
 global.toggleTradeMode = toggleTradeMode;
-global.toggleTestMode = toggleTestMode;
+global.setRiskLevel = setRiskLevel;
 global.forceUpdateRealBalance = forceUpdateRealBalance;
 global.balance = () => globalState.balance;
 global.stats = () => globalState.stats;
@@ -893,3 +980,5 @@ global.history = () => globalState.history;
 
 console.log('\n✅ Трейдинг Бот Вася 3000 Уникальный запущен!');
 console.log('Используй toggleMode() для переключения между ДЕМО и РЕАЛЬНЫМ режимом.');
+console.log('Используй toggleTradeMode() для переключения между стабильным и скальпинг режимами.');
+console.log('Используй setRiskLevel(level) для установки уровня риска: recommended, medium, high, extreme.');
