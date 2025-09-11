@@ -5,10 +5,10 @@ const CryptoJS = require('crypto-js');
 // ГЛОБАЛЬНОЕ СОСТОЯНИЕ
 // ==========================
 let globalState = {
-  balance: 100,
-  realBalance: null,
-  positions: {},
-  history: [],
+  balance: 100, // Демо-баланс
+  realBalance: null, // Реальный баланс с BingX Futures
+  positions: {}, // Активные позиции (отображаются в "Анализе")
+  history: [], // История ВСЕХ сделок (активные + завершённые)
   stats: {
     totalTrades: 0,
     profitableTrades: 0,
@@ -29,31 +29,15 @@ let globalState = {
   isRunning: true,
   takerFee: 0.0005, // Комиссия тейкера (0.05%)
   makerFee: 0.0002, // Комиссия мейкера (0.02%)
-  maxRiskPerTrade: 0.01,  // 1% от депозита
+  maxRiskPerTrade: 0.01,  // 1% от депозита по умолчанию
   maxLeverage: 3,         // 3x плечо
   watchlist: [
     { symbol: 'BTC', name: 'bitcoin' },
     { symbol: 'ETH', name: 'ethereum' },
-    { symbol: 'BNB', name: 'binancecoin' },
     { symbol: 'SOL', name: 'solana' },
-    { symbol: 'XRP', name: 'ripple' },
-    { symbol: 'DOGE', name: 'dogecoin' },
-    { symbol: 'ADA', name: 'cardano' },
-    { symbol: 'DOT', name: 'polkadot' },
-    { symbol: 'LINK', name: 'chainlink' },
-    // Добавляем 10 новых криптовалют
-    { symbol: 'AVAX', name: 'avalanche' },
-    { symbol: 'ATOM', name: 'cosmos' },
-    { symbol: 'UNI', name: 'uniswap' },
-    { symbol: 'AAVE', name: 'aave' },
-    { symbol: 'FIL', name: 'filecoin' },
-    { symbol: 'LTC', name: 'litecoin' },
-    { symbol: 'ALGO', name: 'algorand' },
-    { symbol: 'NEAR', name: 'near' },
-    { symbol: 'APT', name: 'aptos' },
-    { symbol: 'PENGU', name: 'pengu' } // Заменяем MATIC на PENGU
+    { symbol: 'XRP', name: 'ripple' }
   ],
-  isRealMode: false,
+  isRealMode: false, // false = демо, true = реальный режим
   tradeMode: 'stable',    // 'stable' или 'scalping'
   riskLevel: 'recommended', // 'recommended', 'medium', 'high', 'extreme'
   testMode: false,
@@ -108,7 +92,7 @@ async function getFearAndGreedIndex() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение реального баланса с BingX Futures
+// ФУНКЦИЯ: Получение реального баланса с BingX Futures (ПОДПИСАННЫЙ ЗАПРОС!)
 // ==========================
 async function getBingXRealBalance() {
   try {
@@ -124,7 +108,7 @@ async function getBingXRealBalance() {
     const signature = signBingXRequest(params);
     const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/user/balance?${new URLSearchParams(params)}&signature=${signature}`;
 
-    console.log('🌐 [БАЛАНС] Отправляю запрос к:', url);
+    console.log('🌐 [БАЛАНС] Отправляю ПОДПИСАННЫЙ запрос к:', url);
 
     const response = await axios.get(url, {
       headers: { 
@@ -276,127 +260,160 @@ function setRiskLevel(level) {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение текущих цен с CoinGecko (гарантированно работает!)
+// ФУНКЦИЯ: Получение текущих цен с BingX (ПОДПИСАННЫЙ ЗАПРОС!)
 // ==========================
 async function getCurrentFuturesPrices() {
   try {
-    const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,binancecoin,solana,ripple,dogecoin,cardano,polkadot,chainlink,avalanche,cosmos,uniswap,aave,filecoin,litecoin,algorand,near,aptos&vs_currencies=usd', {
-      timeout: 15000,
-      headers: {
+    if (!BINGX_API_KEY || !BINGX_SECRET_KEY) {
+      console.log('ℹ️ [ЦЕНЫ] API-ключи не заданы. Используем демо-цены.');
+      return generateDemoPrices();
+    }
+
+    const timestamp = Date.now();
+    const params = { timestamp };
+    const signature = signBingXRequest(params);
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/quote/price?${new URLSearchParams(params)}&signature=${signature}`;
+
+    const response = await axios.get(url, {
+      headers: { 
+        'X-BX-APIKEY': BINGX_API_KEY,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-      }
+      },
+      timeout: 15000
     });
 
-    if (!response.data) {
-      throw new Error('Invalid response from CoinGecko');
+    if (!response.data || !Array.isArray(response.data.data)) {
+      console.error('❌ BingX не вернул массив данных для фьючерсов');
+      return generateDemoPrices();
     }
 
     const prices = {};
-    const mapping = {
-      'bitcoin': 'bitcoin',
-      'ethereum': 'ethereum',
-      'binancecoin': 'binancecoin',
-      'solana': 'solana',
-      'ripple': 'ripple',
-      'dogecoin': 'dogecoin',
-      'cardano': 'cardano',
-      'polkadot': 'polkadot',
-      'chainlink': 'chainlink',
-      'avalanche': 'avalanche',
-      'cosmos': 'cosmos',
-      'uniswap': 'uniswap',
-      'aave': 'aave',
-      'filecoin': 'filecoin',
-      'litecoin': 'litecoin',
-      'algorand': 'algorand',
-      'near': 'near',
-      'aptos': 'aptos'
+    const symbolMap = {
+      'BTC-USDT': 'bitcoin',
+      'ETH-USDT': 'ethereum',
+      'SOL-USDT': 'solana',
+      'XRP-USDT': 'ripple'
     };
 
-    for (const [key, id] of Object.entries(mapping)) {
-      if (response.data[id] && response.data[id].usd) {
-        prices[key] = parseFloat(response.data[id].usd);
+    for (const ticker of response.data.data) {
+      if (!ticker.symbol || !ticker.price) continue;
+      const coinName = symbolMap[ticker.symbol];
+      if (coinName) {
+        prices[coinName] = parseFloat(ticker.price);
       }
     }
 
-    // Добавляем PENGU вручную
-    prices['pengu'] = 0.0000012 * (0.99 + Math.random() * 0.02);
-
     globalState.currentPrices = prices;
-    console.log('✅ [ЦЕНЫ] Успешно получены с CoinGecko');
+    console.log('✅ [ЦЕНЫ] Успешно получены с BingX');
     return prices;
   } catch (error) {
-    console.error('❌ Ошибка получения цен с CoinGecko:', error.message);
-    
-    // Fallback: демо-цены с колебаниями
-    const fallbackPrices = {
-      "bitcoin": 62450.50,
-      "ethereum": 3120.75,
-      "binancecoin": 610.20,
-      "solana": 145.80,
-      "ripple": 0.52,
-      "dogecoin": 0.13,
-      "cardano": 0.45,
-      "polkadot": 7.20,
-      "chainlink": 15.30,
-      "avalanche": 35.60,
-      "cosmos": 8.40,
-      "uniswap": 8.10,
-      "aave": 95.50,
-      "filecoin": 5.20,
-      "litecoin": 85.30,
-      "algorand": 0.18,
-      "near": 5.60,
-      "aptos": 8.90,
-      "pengu": 0.0000012
-    };
-
-    const volatilePrices = {};
-    for (const [key, value] of Object.entries(fallbackPrices)) {
-      volatilePrices[key] = value * (0.99 + Math.random() * 0.02);
-    }
-
-    globalState.currentPrices = volatilePrices;
-    console.log('ℹ️ [ЦЕНЫ] Используем демо-цены с колебаниями');
-    return volatilePrices;
+    console.error('❌ Ошибка получения цен с BingX:', error.message);
+    return generateDemoPrices();
   }
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение исторических свечей (генерируем демо-данные)
+// ФУНКЦИЯ: Генерация демо-цен (если API недоступен)
+// ==========================
+function generateDemoPrices() {
+  const basePrices = {
+    "bitcoin": 62450.50,
+    "ethereum": 3120.75,
+    "solana": 145.80,
+    "ripple": 0.52
+  };
+
+  const prices = {};
+  for (const [key, value] of Object.entries(basePrices)) {
+    const volatility = 1 + (Math.random() - 0.5) * 0.04;
+    prices[key] = parseFloat((value * volatility).toFixed(8));
+  }
+
+  globalState.currentPrices = prices;
+  console.log('ℹ️ [ЦЕНЫ] Используем демо-цены с колебаниями');
+  return prices;
+}
+
+// ==========================
+// ФУНКЦИЯ: Получение исторических свечей с BingX (ПОДПИСАННЫЙ ЗАПРОС!)
 // ==========================
 async function getBingXFuturesHistory(symbol, interval = '1h', limit = 50) {
   try {
-    const basePrice = globalState.currentPrices[symbol] || 100;
-    const candles = [];
-    for (let i = 0; i < limit; i++) {
-      const price = basePrice * (0.98 + Math.sin(i / 5) * 0.04 + (Math.random() - 0.5) * 0.02);
-      candles.push({
-        price: parseFloat(price.toFixed(8)),
-        high: parseFloat((price * 1.01).toFixed(8)),
-        low: parseFloat((price * 0.99).toFixed(8)),
-        volume: parseFloat((Math.random() * 1000).toFixed(2)),
-        time: Date.now() - (limit - i) * 3600000
-      });
+    if (!BINGX_API_KEY || !BINGX_SECRET_KEY) {
+      console.log(`ℹ️ [СВЕЧИ] API-ключи не заданы. Используем демо-данные для ${symbol}.`);
+      return generateDemoCandles(symbol);
     }
+
+    const symbolMap = {
+      'bitcoin': 'BTC-USDT',
+      'ethereum': 'ETH-USDT',
+      'solana': 'SOL-USDT',
+      'ripple': 'XRP-USDT'
+    };
+
+    const bingxSymbol = symbolMap[symbol];
+    if (!bingxSymbol) {
+      console.error(`❌ Неизвестная монета: ${symbol}`);
+      return generateDemoCandles(symbol);
+    }
+
+    const timestamp = Date.now();
+    const params = {
+      symbol: bingxSymbol,
+      interval: interval,
+      limit: limit,
+      timestamp: timestamp
+    };
+
+    const signature = signBingXRequest(params);
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/quote/klines?${new URLSearchParams(params)}&signature=${signature}`;
+
+    const response = await axios.get(url, {
+      headers: { 
+        'X-BX-APIKEY': BINGX_API_KEY,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      },
+      timeout: 15000
+    });
+
+    if (!response.data || !Array.isArray(response.data.data)) {
+      console.error(`❌ BingX вернул не массив для ${symbol}:`, response.data);
+      return generateDemoCandles(symbol);
+    }
+
+    const candles = response.data.data.map(candle => ({
+      price: parseFloat(candle.close),
+      high: parseFloat(candle.high),
+      low: parseFloat(candle.low),
+      volume: parseFloat(candle.volume),
+      time: candle.time
+    }));
+
     return candles;
+
   } catch (error) {
-    console.error(`❌ Ошибка получения истории для ${symbol}:`, error.message);
-    // Fallback: генерируем демо-свечи
-    const basePrice = globalState.currentPrices[symbol] || 100;
-    const candles = [];
-    for (let i = 0; i < 50; i++) {
-      const price = basePrice * (0.98 + Math.sin(i / 5) * 0.04 + (Math.random() - 0.5) * 0.02);
-      candles.push({
-        price: parseFloat(price.toFixed(8)),
-        high: parseFloat((price * 1.01).toFixed(8)),
-        low: parseFloat((price * 0.99).toFixed(8)),
-        volume: parseFloat((Math.random() * 1000).toFixed(2)),
-        time: Date.now() - (50 - i) * 3600000
-      });
-    }
-    return candles;
+    console.error(`❌ Ошибка получения истории для ${symbol} с BingX:`, error.message);
+    return generateDemoCandles(symbol);
   }
+}
+
+// ==========================
+// ФУНКЦИЯ: Генерация демо-свечей
+// ==========================
+function generateDemoCandles(symbol) {
+  const basePrice = globalState.currentPrices[symbol] || 100;
+  const candles = [];
+  for (let i = 0; i < 50; i++) {
+    const price = basePrice * (0.98 + Math.sin(i / 5) * 0.04 + (Math.random() - 0.5) * 0.02);
+    candles.push({
+      price: parseFloat(price.toFixed(8)),
+      high: parseFloat((price * 1.01).toFixed(8)),
+      low: parseFloat((price * 0.99).toFixed(8)),
+      volume: parseFloat((Math.random() * 1000).toFixed(2)),
+      time: Date.now() - (50 - i) * 3600000
+    });
+  }
+  return candles;
 }
 
 // ==========================
@@ -593,23 +610,8 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
   const symbolMap = {
     'bitcoin': 'BTC-USDT',
     'ethereum': 'ETH-USDT',
-    'binancecoin': 'BNB-USDT',
     'solana': 'SOL-USDT',
-    'ripple': 'XRP-USDT',
-    'dogecoin': 'DOGE-USDT',
-    'cardano': 'ADA-USDT',
-    'polkadot': 'DOT-USDT',
-    'chainlink': 'LINK-USDT',
-    'avalanche': 'AVAX-USDT',
-    'cosmos': 'ATOM-USDT',
-    'uniswap': 'UNI-USDT',
-    'aave': 'AAVE-USDT',
-    'filecoin': 'FIL-USDT',
-    'litecoin': 'LTC-USDT',
-    'algorand': 'ALGO-USDT',
-    'near': 'NEAR-USDT',
-    'aptos': 'APT-USDT',
-    'pengu': 'PENGU-USDT'
+    'ripple': 'XRP-USDT'
   };
 
   const symbol = symbolMap[coin];
@@ -648,11 +650,8 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
         probability: 50
       };
 
-      globalState.history.push(trade);
-      globalState.positions[coin] = {
-        ...trade,
-        trailingStop: price * (direction === 'LONG' ? 0.99 : 1.01)
-      };
+      globalState.history.push(trade); // Добавляем в историю как активную сделку
+      globalState.positions[coin] = trade; // Сохраняем в активных позициях
 
       globalState.stats.totalTrades++;
       globalState.marketMemory.consecutiveTrades[coin] = (globalState.marketMemory.consecutiveTrades[coin] || 0) + 1;
@@ -665,6 +664,7 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
       return false;
     }
   } else {
+    // ДЕМО-РЕЖИМ: Имитируем реальную торговлю
     const cost = (size * price) / leverage;
     const fee = size * price * globalState.takerFee; // Комиссия тейкера
 
@@ -690,11 +690,8 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
       probability: 50
     };
 
-    globalState.history.push(trade);
-    globalState.positions[coin] = {
-      ...trade,
-      trailingStop: price * (direction === 'LONG' ? 0.99 : 1.01)
-    };
+    globalState.history.push(trade); // Добавляем в историю как активную сделку
+    globalState.positions[coin] = trade; // Сохраняем в активных позициях
 
     globalState.stats.totalTrades++;
     globalState.marketMemory.consecutiveTrades[coin] = (globalState.marketMemory.consecutiveTrades[coin] || 0) + 1;
@@ -737,13 +734,14 @@ async function checkOpenPositions(currentPrices) {
 
     if (shouldClose) {
       console.log(`✅ ЗАКРЫТИЕ: ${reason} по ${coin.name}`);
-      const trade = globalState.history.find(t => t.coin === coin.name && t.status === 'OPEN');
-      if (trade) {
+      const tradeIndex = globalState.history.findIndex(t => t.coin === coin.name && t.status === 'OPEN');
+      if (tradeIndex !== -1) {
+        const trade = globalState.history[tradeIndex];
         trade.exitPrice = currentPrice;
         trade.profitPercent = position.type === 'LONG' 
           ? (currentPrice - trade.entryPrice) / trade.entryPrice 
           : (trade.entryPrice - currentPrice) / trade.entryPrice;
-        trade.status = 'CLOSED';
+        trade.status = 'CLOSED'; // Меняем статус на CLOSED
         
         if (trade.profitPercent > 0) {
           globalState.stats.profitableTrades++;
@@ -835,7 +833,7 @@ function printStats() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение новостей (с русскими заголовками и 🐂/🐻)
+// ФУНКЦИЯ: Получение новостей крипторынка (на русском с 🐂/🐻)
 // ==========================
 async function getCryptoNews() {
   try {
@@ -856,8 +854,31 @@ async function getCryptoNews() {
       const trendEmoji = change24h > 0 ? '🐂 Бычий' : '🐻 Медвежий';
       const trendClass = change24h > 0 ? 'positive' : 'negative';
       
+      // Переводим название на русский (простой маппинг)
+      const russianNames = {
+        'Bitcoin': 'Биткоин',
+        'Ethereum': 'Эфириум',
+        'Solana': 'Солана',
+        'Ripple': 'Рипл',
+        'Dogecoin': 'Догекоин',
+        'Cardano': 'Кардано',
+        'Polkadot': 'Полкадот',
+        'Chainlink': 'Чейнлинк',
+        'Avalanche': 'Аваланч',
+        'Cosmos': 'Космос',
+        'Uniswap': 'Юнисвап',
+        'Aave': 'Ааве',
+        'Filecoin': 'Файлкоин',
+        'Litecoin': 'Лайткоин',
+        'Algorand': 'Алгоранд',
+        'Near Protocol': 'Нир Протокол',
+        'Aptos': 'Аптос'
+      };
+      
+      const russianName = russianNames[coin.name] || coin.name;
+      
       return {
-        title: `${coin.name} (${coin.symbol}) — Рыночная капитализация: $${(coin.marketCap || 0).toLocaleString()}`,
+        title: `${russianName} (${coin.symbol}) — Рыночная капитализация: $${(coin.marketCap || 0).toLocaleString()}`,
         source: 'CoinMarketCap',
         sentiment: trendClass,
         trend: trendEmoji,
@@ -872,7 +893,7 @@ async function getCryptoNews() {
     // Fallback на демо-новости с русским языком и трендами
     return [
       { 
-        title: "Bitcoin突破$60K, 机构资金持续流入", 
+        title: "Биткоин突破$60K, 机构资金持续流入", 
         source: "CryptoNews", 
         sentiment: "positive",
         trend: "🐂 Бычий",
@@ -880,7 +901,7 @@ async function getCryptoNews() {
         url: "#"
       },
       { 
-        title: "Ethereum ETF Approval Expected in Q3 2024", 
+        title: "Эфириум ETF Approval Expected in Q3 2024", 
         source: "CoinDesk", 
         sentiment: "positive",
         trend: "🐂 Бычий",
@@ -888,7 +909,7 @@ async function getCryptoNews() {
         url: "#"
       },
       { 
-        title: "Market Correction: Altcoins Down 15% This Week", 
+        title: "Рынок корректируется: Альткоины упали на 15% на этой неделе", 
         source: "Cointelegraph", 
         sentiment: "negative",
         trend: "🐻 Медвежий",
@@ -896,7 +917,7 @@ async function getCryptoNews() {
         url: "#"
       },
       { 
-        title: "Solana Network Upgrades Boost Transaction Speed", 
+        title: "Сеть Solana обновлена для увеличения скорости транзакций", 
         source: "The Block", 
         sentiment: "positive",
         trend: "🐂 Бычий",
@@ -904,7 +925,7 @@ async function getCryptoNews() {
         url: "#"
       },
       { 
-        title: "Regulatory Pressure Increases on Major Exchanges", 
+        title: "Регуляторное давление на крупные биржи усиливается", 
         source: "Bloomberg Crypto", 
         sentiment: "negative",
         trend: "🐻 Медвежий",
@@ -937,7 +958,7 @@ async function sendPushNotification(title, body, url = '/') {
 }
 
 // ==========================
-// ФУНКЦИЯ: Тестирование API BingX (реальная сделка на 30% баланса)
+// ФУНКЦИЯ: Тестирование API BingX (реальная сделка с 30% риском)
 // ==========================
 async function testBingXAPI() {
   try {
@@ -963,11 +984,14 @@ async function testBingXAPI() {
       return { success: false, message: 'Не удалось получить цену BTC' };
     }
 
-    // Шаг 3: Рассчитываем размер позиции (30% от баланса)
-    const riskAmount = balance * 0.3; // 30% от баланса
-    const size = riskAmount / btcPrice;
+    // Шаг 3: Рассчитываем размер позиции (30% РИСКА от баланса, а не 30% баланса)
+    const riskPercent = 0.3; // 30% риск
+    const stopLossPercent = 0.02; // 2% стоп-лосс
+    const riskAmount = balance * riskPercent; // $30 при балансе $100
+    const stopDistance = btcPrice * stopLossPercent; // Расстояние до стоп-лосса в $
+    const size = riskAmount / stopDistance; // Размер позиции
 
-    console.log(`🧪 [ТЕСТ] Открываем тестовую позицию LONG на 30% от баланса: $${riskAmount.toFixed(2)}`);
+    console.log(`🧪 [ТЕСТ] Открываем тестовую позицию LONG с риском 30% от баланса: $${riskAmount.toFixed(2)}`);
 
     // Шаг 4: Открываем реальную позицию
     const success = await openFuturesTrade(
@@ -976,13 +1000,13 @@ async function testBingXAPI() {
       3, // Плечо 3x
       size,
       btcPrice,
-      btcPrice * 0.99, // Стоп-лосс -1%
-      btcPrice * 1.01  // Тейк-профит +1%
+      btcPrice * (1 - stopLossPercent), // Стоп-лосс -2%
+      btcPrice * 1.04  // Тейк-профит +4%
     );
 
     if (success) {
       console.log('✅ [ТЕСТ] Тестовая позиция успешно открыта!');
-      return { success: true, message: 'Тестовая позиция успешно открыта! Проверьте ваш аккаунт на BingX.' };
+      return { success: true, message: 'Тестовая позиция успешно открыта! Проверьте ваш фьючерсный счет на BingX.' };
     } else {
       console.error('❌ [ТЕСТ] Не удалось открыть тестовую позицию');
       return { success: false, message: 'Не удалось открыть тестовую позицию' };
@@ -997,12 +1021,12 @@ async function testBingXAPI() {
 // ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
 // ==========================
 (async () => {
-  console.log('🤖 ЗАПУСК БОТА v16.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ');
+  console.log('🤖 ЗАПУСК БОТА v17.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ');
   console.log('📌 deposit(сумма) — пополнить демо-баланс');
   console.log('🔄 toggleMode() — переключить режим (ДЕМО ↔ РЕАЛЬНЫЙ)');
   console.log('⚡ toggleTradeMode() — переключить торговый режим (stable ↔ scalping)');
   console.log('💣 setRiskLevel() — установить уровень риска (recommended, medium, high, extreme)');
-  console.log('🧪 testBingXAPI() — протестировать подключение к BingX (реальная сделка на 30% баланса)');
+  console.log('🧪 testBingXAPI() — протестировать подключение к BingX (реальная сделка с 30% риском)');
 
   // Устанавливаем начальный уровень риска
   setRiskLevel('recommended');
@@ -1022,11 +1046,11 @@ async function testBingXAPI() {
         await forceUpdateRealBalance();
       }
 
-      // Получаем текущие цены — ТЕПЕРЬ ТОЧНО РАБОТАЕТ С COINGECKO!
+      // Получаем текущие цены
       const currentPrices = await getCurrentFuturesPrices();
       globalState.currentPrices = currentPrices;
       
-      // Получаем новости каждые 30 минут — ТЕПЕРЬ НА РУССКОМ С ТРЕНДАМИ 🐂/🐻!
+      // Получаем новости каждые 30 минут
       if (Date.now() % 1800000 < 60000) {
         globalState.marketMemory.news = await getCryptoNews();
         console.log('📰 Получены последние новости крипторынка');
@@ -1149,7 +1173,8 @@ global.stats = () => globalState.stats;
 global.history = () => globalState.history;
 
 console.log('\n✅ Трейдинг Бот Вася 3000 Уникальный запущен!');
+console.log('❗ ВАЖНО: Для торговли на реальном счете переведите USDT на фьючерсный счет в интерфейсе BingX.');
 console.log('Используй toggleMode() для переключения между ДЕМО и РЕАЛЬНЫМ режимом.');
 console.log('Используй toggleTradeMode() для переключения между стабильным и скальпинг режимами.');
 console.log('Используй setRiskLevel(level) для установки уровня риска: recommended, medium, high, extreme.');
-console.log('Используй testBingXAPI() для тестирования подключения к BingX (реальная сделка на 30% баланса).');
+console.log('Используй testBingXAPI() для тестирования подключения к BingX (реальная сделка с 30% риском).');
