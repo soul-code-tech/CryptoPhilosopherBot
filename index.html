@@ -303,7 +303,7 @@
                 <div id="maxLeverage">1x</div>
             </div>
             <div class="stat-card">
-                <div>Текущий демо-баланс</div>
+                <div>Текущий баланс</div>
                 <div id="currentBalance">$0.00</div>
             </div>
         </div>
@@ -333,6 +333,8 @@
     <div id="settings" class="section" style="display: none;">
         <h2>⚙️ Настройки</h2>
         <div>
+            <button onclick="toggleMode()">🔄 Переключить режим (ДЕМО ↔ РЕАЛЬНЫЙ)</button>
+            <p id="modeStatus">Текущий режим: ДЕМО</p>
             <button onclick="sendTestNotification()">🔔 Тестовое уведомление</button>
             <p>Нажми, чтобы проверить Push-уведомления на телефоне</p>
         </div>
@@ -367,12 +369,13 @@
                     <div>🏦 Реальный баланс: $${state.realBalance?.toFixed(2) || 'Загрузка...'}</div>
                 `;
 
-                document.getElementById('currentBalance').innerText = `$${state.balance.toFixed(2)}`;
+                document.getElementById('currentBalance').innerText = `$${(state.isRealMode ? state.realBalance : state.balance)?.toFixed(2) || 'Загрузка...'}`;
                 document.getElementById('totalTrades').innerText = state.stats.totalTrades;
                 document.getElementById('winRate').innerText = `${state.stats.winRate.toFixed(1)}%`;
                 document.getElementById('totalProfit').innerText = `$${state.stats.totalProfit.toFixed(2)}`;
                 document.getElementById('maxDrawdown').innerText = `${state.stats.maxDrawdown.toFixed(1)}%`;
                 document.getElementById('maxLeverage').innerText = `${state.stats.maxLeverageUsed}x`;
+                document.getElementById('modeStatus').innerText = `Текущий режим: ${state.isRealMode ? 'РЕАЛЬНЫЙ' : 'ДЕМО'}`;
 
                 // Открытые позиции
                 let positionsHtml = '';
@@ -473,6 +476,27 @@
                 if (result.success) {
                     alert(`Демо-баланс пополнен! Новый баланс: $${result.balance.toFixed(2)}`);
                     updateState();
+                } else {
+                    alert('Ошибка: ' + result.message);
+                }
+            } catch (error) {
+                alert('Ошибка соединения с сервером');
+            }
+        }
+
+        // Функция переключения режима
+        async function toggleMode() {
+            try {
+                const response = await fetch('/api/toggleMode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    document.getElementById('modeStatus').innerText = `Текущий режим: ${result.isRealMode ? 'РЕАЛЬНЫЙ' : 'ДЕМО'}`;
+                    updateState(); // Обновляем интерфейс
+                    alert(result.message);
                 } else {
                     alert('Ошибка: ' + result.message);
                 }
