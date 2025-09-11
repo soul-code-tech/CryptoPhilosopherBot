@@ -12,7 +12,6 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '.')));
 
-// API: Получение состояния бота
 app.get('/api/state', async (req, res) => {
   try {
     res.json({
@@ -31,7 +30,6 @@ app.get('/api/state', async (req, res) => {
   }
 });
 
-// API: Пополнение демо-баланса
 app.post('/api/deposit', (req, res) => {
   const { amount } = req.body;
   if (amount > 0) {
@@ -46,7 +44,6 @@ app.post('/api/deposit', (req, res) => {
   }
 });
 
-// API: Переключение режима (ДЕМО ↔ РЕАЛЬНЫЙ)
 app.post('/api/toggleMode', (req, res) => {
   try {
     const newMode = bot.toggleMode();
@@ -60,7 +57,6 @@ app.post('/api/toggleMode', (req, res) => {
   }
 });
 
-// API: Переключение торгового режима (stable ↔ scalping)
 app.post('/api/toggleTradeMode', (req, res) => {
   try {
     const newMode = bot.toggleTradeMode();
@@ -74,7 +70,6 @@ app.post('/api/toggleTradeMode', (req, res) => {
   }
 });
 
-// API: Включение тестового режима
 app.post('/api/toggleTestMode', (req, res) => {
   try {
     const newMode = bot.toggleTestMode();
@@ -88,7 +83,6 @@ app.post('/api/toggleTestMode', (req, res) => {
   }
 });
 
-// API: Принудительное обновление реального баланса
 app.post('/api/forceUpdateBalance', (req, res) => {
   try {
     bot.forceUpdateRealBalance();
@@ -101,7 +95,6 @@ app.post('/api/forceUpdateBalance', (req, res) => {
   }
 });
 
-// Главная страница
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
