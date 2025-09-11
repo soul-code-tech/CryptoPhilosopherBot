@@ -12,6 +12,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '.')));
 
+// API: Получение состояния бота
 app.get('/api/state', async (req, res) => {
   try {
     res.json({
@@ -23,13 +24,17 @@ app.get('/api/state', async (req, res) => {
       platform: 'BingX Futures',
       isRealMode: bot.globalState.isRealMode,
       tradeMode: bot.globalState.tradeMode,
-      testMode: bot.globalState.testMode
+      riskLevel: bot.globalState.riskLevel,
+      currentPrices: bot.globalState.currentPrices,
+      fearIndex: bot.globalState.fearIndex,
+      news: bot.globalState.marketMemory.news || []
     });
   } catch (error) {
     res.status(500).json({ error: 'Ошибка получения состояния' });
   }
 });
 
+// API: Пополнение демо-баланса
 app.post('/api/deposit', (req, res) => {
   const { amount } = req.body;
   if (amount > 0) {
@@ -44,6 +49,7 @@ app.post('/api/deposit', (req, res) => {
   }
 });
 
+// API: Переключение режима (ДЕМО ↔ РЕАЛЬНЫЙ)
 app.post('/api/toggleMode', (req, res) => {
   try {
     const newMode = bot.toggleMode();
@@ -57,6 +63,7 @@ app.post('/api/toggleMode', (req, res) => {
   }
 });
 
+// API: Переключение торгового режима (stable ↔ scalping)
 app.post('/api/toggleTradeMode', (req, res) => {
   try {
     const newMode = bot.toggleTradeMode();
@@ -70,19 +77,26 @@ app.post('/api/toggleTradeMode', (req, res) => {
   }
 });
 
-app.post('/api/toggleTestMode', (req, res) => {
+// API: Установка уровня риска
+app.post('/api/setRiskLevel', (req, res) => {
   try {
-    const newMode = bot.toggleTestMode();
+    const { level } = req.body;
+    if (!level || !['recommended', 'medium', 'high', 'extreme'].includes(level)) {
+      return res.status(400).json({ success: false, message: 'Неверный уровень риска' });
+    }
+    
+    const newLevel = bot.setRiskLevel(level);
     res.json({ 
       success: true, 
-      testMode: newMode,
-      message: `Тестовый режим ${newMode ? 'ВКЛЮЧЁН' : 'ВЫКЛЮЧЕН'}`
+      riskLevel: newLevel,
+      message: `Уровень риска установлен на: ${newLevel}`
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Ошибка переключения тестового режима' });
+    res.status(500).json({ success: false, message: 'Ошибка установки уровня риска' });
   }
 });
 
+// API: Принудительное обновление реального баланса
 app.post('/api/forceUpdateBalance', (req, res) => {
   try {
     bot.forceUpdateRealBalance();
@@ -95,6 +109,17 @@ app.post('/api/forceUpdateBalance', (req, res) => {
   }
 });
 
+// API: Получение новостей
+app.get('/api/news', async (req, res) => {
+  try {
+    const news = bot.globalState.marketMemory.news || [];
+    res.json({ news });
+  } catch (error) {
+    res.status(500).json({ error: 'Ошибка получения новостей' });
+  }
+});
+
+// Главная страница
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
