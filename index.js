@@ -61,13 +61,13 @@ const BINGX_SECRET_KEY = process.env.BINGX_SECRET_KEY;
 const BINGX_FUTURES_URL = 'https://open-api.bingx.com';
 
 // ==========================
-// ФУНКЦИЯ: Подпись запроса для BingX (ИСПРАВЛЕНА!)
+// ФУНКЦИЯ: Подпись запроса для BingX (СТРОГО ПО ДОКУМЕНТАЦИИ)
 // ==========================
 function signBingXRequest(params) {
-  const sortedParams = Object.keys(params)
-    .sort()
-    .map(key => `${key}=${params[key]}`)
-    .join('&');
+  // Сортируем параметры по ключам
+  const sortedKeys = Object.keys(params).sort();
+  const sortedParams = sortedKeys.map(key => `${key}=${params[key]}`).join('&');
+  // Создаем подпись HMAC SHA256
   return CryptoJS.HmacSHA256(sortedParams, BINGX_SECRET_KEY).toString(CryptoJS.enc.Hex);
 }
 
@@ -106,7 +106,9 @@ async function getBingXRealBalance() {
     const timestamp = Date.now();
     const params = { timestamp };
     const signature = signBingXRequest(params);
-    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/user/balance?${new URLSearchParams(params)}&signature=${signature}`;
+    
+    // ВАЖНО: Все параметры передаются в query string, а не в body
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/user/balance?timestamp=${timestamp}&signature=${signature}`;
 
     console.log('🌐 [БАЛАНС] Отправляю ПОДПИСАННЫЙ запрос к:', url);
 
@@ -426,11 +428,19 @@ async function setBingXLeverage(symbol, leverage) {
     }
 
     const timestamp = Date.now();
-    const params = { symbol, leverage: leverage.toString(), timestamp };
-    const signature = signBingXRequest(params);
-    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/trade/leverage?${new URLSearchParams(params)}&signature=${signature}`;
+    // Параметры строго по документации
+    const params = {
+      symbol: symbol,
+      side: 'LONG', // Обязательный параметр
+      leverage: leverage.toString(),
+      timestamp: timestamp
+    };
 
-    const response = await axios.post(url, {}, {
+    const signature = signBingXRequest(params);
+    // ВАЖНО: Все параметры передаются в query string
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/trade/leverage?symbol=${symbol}&side=LONG&leverage=${leverage}&timestamp=${timestamp}&signature=${signature}`;
+
+    const response = await axios.post(url, null, {
       headers: { 
         'X-BX-APIKEY': BINGX_API_KEY,
         'Content-Type': 'application/json',
@@ -441,11 +451,14 @@ async function setBingXLeverage(symbol, leverage) {
 
     if (response.data.code === 0) {
       console.log(`✅ Плечо ${leverage}x установлено для ${symbol}`);
+      return true;
     } else {
       console.error(`❌ Ошибка установки плеча для ${symbol}:`, response.data.msg);
+      return false;
     }
   } catch (error) {
     console.error(`💥 Ошибка установки плеча:`, error.message);
+    return false;
   }
 }
 
@@ -459,26 +472,38 @@ async function placeBingXFuturesOrder(symbol, side, positionSide, type, quantity
       return { orderId: `fake_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` };
     }
 
-    await setBingXLeverage(symbol, leverage);
+    // Устанавливаем плечо
+    const leverageSet = await setBingXLeverage(symbol, leverage);
+    if (!leverageSet) {
+      console.log(`❌ Не удалось установить плечо ${leverage}x для ${symbol}`);
+      return null;
+    }
 
     const timestamp = Date.now();
+    // Параметры строго по документации
     const params = {
-      symbol,
-      side,
-      positionSide,
-      type,
+      symbol: symbol,
+      side: side,
+      positionSide: positionSide,
+      type: type,
       quantity: quantity.toFixed(6),
-      timestamp
+      timestamp: timestamp
     };
 
+    // Для лимитных ордеров добавляем цену
     if (price && type === 'LIMIT') {
       params.price = price.toFixed(8);
     }
 
     const signature = signBingXRequest(params);
-    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/trade/order?${new URLSearchParams(params)}&signature=${signature}`;
+    // ВАЖНО: Все параметры передаются в query string
+    let url = `${BINGX_FUTURES_URL}/openApi/swap/v2/trade/order?symbol=${symbol}&side=${side}&positionSide=${positionSide}&type=${type}&quantity=${quantity.toFixed(6)}&timestamp=${timestamp}&signature=${signature}`;
+    
+    if (price && type === 'LIMIT') {
+      url += `&price=${price.toFixed(8)}`;
+    }
 
-    const response = await axios.post(url, {}, {
+    const response = await axios.post(url, null, {
       headers: { 
         'X-BX-APIKEY': BINGX_API_KEY,
         'Content-Type': 'application/json',
@@ -882,37 +907,17 @@ async function testBingXAPI() {
     console.log(`🧪 [ТЕСТ] Открываем тестовую позицию LONG с риском 30% от баланса: $${riskAmount.toFixed(2)}`);
 
     // Шаг 4: Открываем реальную позицию
-    const symbol = 'BTC-USDT';
-    const side = 'BUY';
-    const positionSide = 'LONG';
-    const leverage = 3;
+    const result = await placeBingXFuturesOrder(
+      'BTC-USDT',
+      'BUY',
+      'LONG',
+      'MARKET',
+      size,
+      null,
+      3
+    );
 
-    // Устанавливаем плечо
-    await setBingXLeverage(symbol, leverage);
-
-    const timestamp = Date.now();
-    const params = {
-      symbol,
-      side,
-      positionSide,
-      type: 'MARKET',
-      quantity: size.toFixed(6),
-      timestamp
-    };
-
-    const signature = signBingXRequest(params);
-    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/trade/order?${new URLSearchParams(params)}&signature=${signature}`;
-
-    const response = await axios.post(url, {}, {
-      headers: { 
-        'X-BX-APIKEY': BINGX_API_KEY,
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-      },
-      timeout: 10000
-    });
-
-    if (response.data.code === 0) {
+    if (result) {
       const fee = size * btcPrice * globalState.takerFee;
       const trade = {
         coin: 'bitcoin',
@@ -920,13 +925,13 @@ async function testBingXAPI() {
         size: size,
         entryPrice: btcPrice,
         currentPrice: btcPrice,
-        leverage: leverage,
+        leverage: 3,
         stopLoss: btcPrice * (1 - stopLossPercent),
         takeProfit: btcPrice * 1.04,
         fee: fee,
         timestamp: new Date().toLocaleString(),
         status: 'OPEN',
-        orderId: response.data.data.orderId,
+        orderId: result.orderId,
         progress: 0,
         probability: 50
       };
@@ -936,13 +941,13 @@ async function testBingXAPI() {
 
       globalState.stats.totalTrades++;
       globalState.marketMemory.consecutiveTrades['bitcoin'] = (globalState.marketMemory.consecutiveTrades['bitcoin'] || 0) + 1;
-      globalState.stats.maxLeverageUsed = Math.max(globalState.stats.maxLeverageUsed, leverage);
+      globalState.stats.maxLeverageUsed = Math.max(globalState.stats.maxLeverageUsed, 3);
 
       console.log('✅ [ТЕСТ] Тестовая позиция успешно открыта!');
       return { success: true, message: 'Тестовая позиция успешно открыта! Проверьте ваш фьючерсный счет на BingX.' };
     } else {
-      console.error('❌ [ТЕСТ] Ошибка при открытии позиции:', response.data.msg);
-      return { success: false, message: 'Ошибка при открытии позиции: ' + response.data.msg };
+      console.error('❌ [ТЕСТ] Не удалось выполнить ордер на BingX Futures');
+      return { success: false, message: 'Не удалось выполнить ордер на BingX Futures' };
     }
   } catch (error) {
     console.error('❌ [ТЕСТ] Ошибка при тестировании API BingX:', error.message);
@@ -954,7 +959,7 @@ async function testBingXAPI() {
 // ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
 // ==========================
 (async () => {
-  console.log('🤖 ЗАПУСК БОТА v18.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ');
+  console.log('🤖 ЗАПУСК БОТА v19.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ');
   console.log('📌 deposit(сумма) — пополнить демо-баланс');
   console.log('🔄 toggleMode() — переключить режим (ДЕМО ↔ РЕАЛЬНЫЙ)');
   console.log('⚡ toggleTradeMode() — переключить торговый режим (stable ↔ scalping)');
