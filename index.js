@@ -27,7 +27,8 @@ let globalState = {
     marketNews: []
   },
   isRunning: true,
-  takerFee: 0.0005,
+  takerFee: 0.0005, // Комиссия тейкера (0.05%)
+  makerFee: 0.0002, // Комиссия мейкера (0.02%)
   maxRiskPerTrade: 0.01,  // 1% от депозита
   maxLeverage: 3,         // 3x плечо
   watchlist: [
@@ -39,7 +40,18 @@ let globalState = {
     { symbol: 'DOGE', name: 'dogecoin' },
     { symbol: 'ADA', name: 'cardano' },
     { symbol: 'DOT', name: 'polkadot' },
-    { symbol: 'LINK', name: 'chainlink' }
+    { symbol: 'LINK', name: 'chainlink' },
+    // Добавляем 10 новых криптовалют
+    { symbol: 'AVAX', name: 'avalanche' },
+    { symbol: 'ATOM', name: 'cosmos' },
+    { symbol: 'UNI', name: 'uniswap' },
+    { symbol: 'AAVE', name: 'aave' },
+    { symbol: 'FIL', name: 'filecoin' },
+    { symbol: 'LTC', name: 'litecoin' },
+    { symbol: 'ALGO', name: 'algorand' },
+    { symbol: 'NEAR', name: 'near' },
+    { symbol: 'APT', name: 'aptos' },
+    { symbol: 'PENGU', name: 'pengu' } // Заменяем MATIC на PENGU
   ],
   isRealMode: false,
   tradeMode: 'stable',    // 'stable' или 'scalping'
@@ -49,6 +61,7 @@ let globalState = {
   fearIndex: 50
 };
 
+// Инициализация состояния для всех монет
 globalState.watchlist.forEach(coin => {
   globalState.positions[coin.name] = null;
   globalState.marketMemory.lastTrades[coin.name] = [];
@@ -264,7 +277,7 @@ function setRiskLevel(level) {
 // ==========================
 async function getCurrentFuturesPrices() {
   try {
-    const response = await axios.get('https://open-api.bingx.com/openApi/swap/v2/quote/price', { timeout: 15000 });
+    const response = await axios.get(`${BINGX_FUTURES_URL}/openApi/swap/v2/quote/price`, { timeout: 15000 });
 
     if (!response.data || !Array.isArray(response.data.data)) {
       console.error('❌ BingX не вернул массив данных для фьючерсов');
@@ -277,18 +290,31 @@ async function getCurrentFuturesPrices() {
 
       const coinSymbol = ticker.symbol.replace('USDT', '').toLowerCase();
       let coinName = '';
-      switch(coinSymbol) {
-        case 'btc': coinName = 'bitcoin'; break;
-        case 'eth': coinName = 'ethereum'; break;
-        case 'bnb': coinName = 'binancecoin'; break;
-        case 'sol': coinName = 'solana'; break;
-        case 'xrp': coinName = 'ripple'; break;
-        case 'doge': coinName = 'dogecoin'; break;
-        case 'ada': coinName = 'cardano'; break;
-        case 'dot': coinName = 'polkadot'; break;
-        case 'link': coinName = 'chainlink'; break;
-        default: continue;
-      }
+      const symbolMap = {
+        'btc': 'bitcoin',
+        'eth': 'ethereum',
+        'bnb': 'binancecoin',
+        'sol': 'solana',
+        'xrp': 'ripple',
+        'doge': 'dogecoin',
+        'ada': 'cardano',
+        'dot': 'polkadot',
+        'link': 'chainlink',
+        'avax': 'avalanche',
+        'atom': 'cosmos',
+        'uni': 'uniswap',
+        'aave': 'aave',
+        'fil': 'filecoin',
+        'ltc': 'litecoin',
+        'algo': 'algorand',
+        'near': 'near',
+        'apt': 'aptos',
+        'pengu': 'pengu'
+      };
+
+      coinName = symbolMap[coinSymbol];
+      if (!coinName) continue;
+
       prices[coinName] = parseFloat(ticker.price);
     }
 
@@ -314,7 +340,17 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 50) {
       'dogecoin': 'DOGE-USDT',
       'cardano': 'ADA-USDT',
       'polkadot': 'DOT-USDT',
-      'chainlink': 'LINK-USDT'
+      'chainlink': 'LINK-USDT',
+      'avalanche': 'AVAX-USDT',
+      'cosmos': 'ATOM-USDT',
+      'uniswap': 'UNI-USDT',
+      'aave': 'AAVE-USDT',
+      'filecoin': 'FIL-USDT',
+      'litecoin': 'LTC-USDT',
+      'algorand': 'ALGO-USDT',
+      'near': 'NEAR-USDT',
+      'aptos': 'APT-USDT',
+      'pengu': 'PENGU-USDT'
     };
 
     const bingxSymbol = symbolMap[symbol];
@@ -323,7 +359,7 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 50) {
       return [];
     }
 
-    const response = await axios.get('https://open-api.bingx.com/openApi/swap/v2/quote/klines', {
+    const response = await axios.get(`${BINGX_FUTURES_URL}/openApi/swap/v2/quote/klines`, {
       params: {
         symbol: bingxSymbol,
         interval: interval,
@@ -537,7 +573,17 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
     'dogecoin': 'DOGE-USDT',
     'cardano': 'ADA-USDT',
     'polkadot': 'DOT-USDT',
-    'chainlink': 'LINK-USDT'
+    'chainlink': 'LINK-USDT',
+    'avalanche': 'AVAX-USDT',
+    'cosmos': 'ATOM-USDT',
+    'uniswap': 'UNI-USDT',
+    'aave': 'AAVE-USDT',
+    'filecoin': 'FIL-USDT',
+    'litecoin': 'LTC-USDT',
+    'algorand': 'ALGO-USDT',
+    'near': 'NEAR-USDT',
+    'aptos': 'APT-USDT',
+    'pengu': 'PENGU-USDT'
   };
 
   const symbol = symbolMap[coin];
@@ -558,6 +604,7 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
     const result = await placeBingXFuturesOrder(symbol, side, positionSide, 'MARKET', size, null, leverage);
 
     if (result) {
+      const fee = size * price * globalState.takerFee; // Комиссия тейкера
       const trade = {
         coin,
         type: direction,
@@ -567,7 +614,7 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
         leverage,
         stopLoss,
         takeProfit,
-        fee: 0,
+        fee,
         timestamp: new Date().toLocaleString(),
         status: 'OPEN',
         orderId: result.orderId,
@@ -593,7 +640,7 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
     }
   } else {
     const cost = (size * price) / leverage;
-    const fee = size * price * globalState.takerFee;
+    const fee = size * price * globalState.takerFee; // Комиссия тейкера
 
     if (cost + fee > globalState.balance * globalState.maxRiskPerTrade) {
       console.log(`❌ Риск превышает ${globalState.maxRiskPerTrade * 100}% от депозита`);
@@ -646,18 +693,18 @@ async function checkOpenPositions(currentPrices) {
     let shouldClose = false;
     let reason = '';
 
-    if (position.side === 'LONG' && currentPrice >= position.takeProfit) {
+    if (position.type === 'LONG' && currentPrice >= position.takeProfit) {
       shouldClose = true;
       reason = '🎯 Достигнут тейк-профит — фиксируем 50% прибыли';
-    } else if (position.side === 'SHORT' && currentPrice <= position.takeProfit) {
+    } else if (position.type === 'SHORT' && currentPrice <= position.takeProfit) {
       shouldClose = true;
       reason = '🎯 Достигнут тейк-профит — фиксируем 50% прибыли';
     }
 
-    if (position.side === 'LONG' && currentPrice <= position.stopLoss) {
+    if (position.type === 'LONG' && currentPrice <= position.stopLoss) {
       shouldClose = true;
       reason = '🛑 Сработал стоп-лосс';
-    } else if (position.side === 'SHORT' && currentPrice >= position.stopLoss) {
+    } else if (position.type === 'SHORT' && currentPrice >= position.stopLoss) {
       shouldClose = true;
       reason = '🛑 Сработал стоп-лосс';
     }
@@ -667,7 +714,7 @@ async function checkOpenPositions(currentPrices) {
       const trade = globalState.history.find(t => t.coin === coin.name && t.status === 'OPEN');
       if (trade) {
         trade.exitPrice = currentPrice;
-        trade.profitPercent = position.side === 'LONG' 
+        trade.profitPercent = position.type === 'LONG' 
           ? (currentPrice - trade.entryPrice) / trade.entryPrice 
           : (trade.entryPrice - currentPrice) / trade.entryPrice;
         trade.status = 'CLOSED';
@@ -692,9 +739,9 @@ async function checkOpenPositions(currentPrices) {
       globalState.positions[coin.name] = null;
       globalState.marketMemory.consecutiveTrades[coin.name] = 0;
     } else {
-      if (position.side === 'LONG' && currentPrice > position.entryPrice * 1.01) {
+      if (position.type === 'LONG' && currentPrice > position.entryPrice * 1.01) {
         position.trailingStop = Math.max(position.trailingStop, currentPrice * 0.99);
-      } else if (position.side === 'SHORT' && currentPrice < position.entryPrice * 0.99) {
+      } else if (position.type === 'SHORT' && currentPrice < position.entryPrice * 0.99) {
         position.trailingStop = Math.min(position.trailingStop, currentPrice * 1.01);
       }
     }
@@ -719,7 +766,7 @@ function showOpenPositionsProgress(currentPrices) {
     let targetPrice = position.takeProfit;
     let distanceToTarget = 0;
 
-    if (position.side === 'LONG') {
+    if (position.type === 'LONG') {
       progress = (currentPrice - position.entryPrice) / (targetPrice - position.entryPrice) * 100;
       distanceToTarget = ((targetPrice - currentPrice) / currentPrice) * 100;
     } else {
@@ -732,13 +779,14 @@ function showOpenPositionsProgress(currentPrices) {
     if (distanceToTarget < 0) successProbability += 20;
     successProbability = Math.min(95, Math.max(5, successProbability));
 
-    console.log(`\n📈 ${coin.name} ${position.side}:`);
+    console.log(`\n📈 ${coin.name} ${position.type}:`);
     console.log(`   Текущая: $${currentPrice.toFixed(2)} | Вход: $${position.entryPrice.toFixed(2)}`);
     console.log(`   🎯 Цель: $${targetPrice.toFixed(2)} (${distanceToTarget > 0 ? '+' : ''}${distanceToTarget.toFixed(2)}% до цели)`);
     console.log(`   📊 Прогресс: ${Math.min(100, Math.max(0, progress)).toFixed(1)}%`);
     console.log(`   🎲 Вероятность успеха: ${successProbability.toFixed(0)}%`);
     console.log(`   🛑 Стоп: $${position.stopLoss.toFixed(2)} | Трейлинг: $${position.trailingStop.toFixed(2)}`);
     console.log(`   ⚖️ Плечо: ${position.leverage}x`);
+    console.log(`   💸 Комиссия: $${position.fee.toFixed(4)}`);
 
     hasOpen = true;
   }
@@ -761,12 +809,28 @@ function printStats() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение новостей крипторынка
+// ФУНКЦИЯ: Получение новостей крипторынка (с TradingView)
 // ==========================
 async function getCryptoNews() {
   try {
-    // В реальном приложении здесь будет настоящий API
-    // Пока используем демо-новости
+    // Используем TradingView API для получения новостей
+    const response = await axios.get('https://news-headlines.tradingview.com/v2/headlines?lang=en&category=cryptocurrencies', { timeout: 10000 });
+
+    if (!response.data || !Array.isArray(response.data.items)) {
+      throw new Error('Invalid response from TradingView');
+    }
+
+    const news = response.data.items.slice(0, 5).map(item => ({
+      title: item.title,
+      source: 'TradingView',
+      sentiment: item.sentiment === 'positive' ? 'Positive' : item.sentiment === 'negative' ? 'Negative' : 'Neutral',
+      url: item.url
+    }));
+
+    return news;
+  } catch (error) {
+    console.error('❌ Ошибка получения новостей с TradingView:', error.message);
+    // Fallback на демо-новости
     return [
       { 
         title: "Bitcoin突破$60K, 机构资金持续流入", 
@@ -799,9 +863,6 @@ async function getCryptoNews() {
         url: "#"
       }
     ];
-  } catch (error) {
-    console.error('❌ Ошибка получения новостей:', error.message);
-    return [];
   }
 }
 
