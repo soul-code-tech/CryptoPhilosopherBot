@@ -94,6 +94,11 @@
             padding: 10px;
             border-radius: 8px;
             text-align: center;
+            transition: transform 0.2s ease;
+        }
+        .price-item:hover {
+            transform: translateY(-3px);
+            background: rgba(255,255,255,0.2);
         }
         .news-item {
             background: rgba(255,255,255,0.1);
@@ -101,9 +106,15 @@
             border-radius: 10px;
             margin: 10px 0;
             border-left: 4px solid var(--neutral-color);
+            transition: all 0.3s ease;
+        }
+        .news-item:hover {
+            background: rgba(255,255,255,0.15);
         }
         .positive { border-left-color: var(--greed-color); }
         .negative { border-left-color: var(--fear-color); }
+        .trend-bull { color: var(--greed-color); font-weight: bold; }
+        .trend-bear { color: var(--fear-color); font-weight: bold; }
         .controls-panel {
             background: rgba(255,255,255,0.1);
             padding: 20px;
@@ -155,6 +166,10 @@
             text-align: center; 
             backdrop-filter: blur(5px);
             border: 1px solid rgba(255,255,255,0.2);
+            transition: transform 0.3s ease;
+        }
+        .stat-card:hover {
+            transform: scale(1.05);
         }
         .progress-bar-container { 
             margin: 15px 0; 
@@ -456,9 +471,15 @@
                 let positionsHtml = '';
                 let hasOpen = false;
                 for (const [coin, position] of Object.entries(state.positions)) {
-                    if (position && position.side) {
+                    if (position && position.type) {
                         hasOpen = true;
-                        positionsHtml += `<div>→ ${coin}: ${position.side} ${position.size?.toFixed(6) || '?'} @ $${position.entryPrice?.toFixed(2) || '?'}</div>`;
+                        const isLong = position.type === 'LONG';
+                        positionsHtml += `
+                            <div style="margin: 5px 0; padding: 8px; background: rgba(255,255,255,0.1); border-radius: 8px;">
+                                → ${coin}: <span style="color: ${isLong ? '#27ae60' : '#e74c3c'}; font-weight: bold;">${position.type}</span> 
+                                ${position.size?.toFixed(6) || '?'} @ $${position.entryPrice?.toFixed(2) || '?'}
+                            </div>
+                        `;
                     }
                 }
                 document.getElementById('openPositions').innerHTML = hasOpen ? positionsHtml : 'Нет открытых позиций';
@@ -481,8 +502,10 @@
                                 </div>
                                 <div class="progress-bar">
                                     <div class="progress-fill" style="width: ${progress}%;"></div>
-                                    <div class="probability-tag">${probability.toFixed(0)}%</div>
-                                    <div class="side-tag side-${isLong ? 'long' : 'short'}">${trade.type}</div>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; font-size: 12px; margin-top: 5px;">
+                                    <span>Вероятность: ${probability.toFixed(0)}%</span>
+                                    <span style="color: ${isLong ? '#27ae60' : '#e74c3c'};">${trade.type}</span>
                                 </div>
                             </div>
                         `;
@@ -495,12 +518,13 @@
                 state.history.slice(-10).forEach(trade => {
                     const profit = trade.profitPercent ? `${(trade.profitPercent * 100).toFixed(2)}%` : '-';
                     const profitClass = trade.profitPercent > 0 ? 'profit-positive' : trade.profitPercent < 0 ? 'profit-negative' : '';
+                    const isLong = trade.type === 'LONG';
                     
                     historyHtml += `
                         <tr>
                             <td style="font-size: 12px;">${trade.timestamp}</td>
                             <td>${trade.coin}</td>
-                            <td><span class="side-tag side-${trade.type === 'LONG' ? 'long' : 'short'}">${trade.type}</span></td>
+                            <td><span style="color: ${isLong ? '#27ae60' : '#e74c3c'}; font-weight: bold;">${trade.type}</span></td>
                             <td>${trade.leverage || '1'}x</td>
                             <td>$${trade.entryPrice?.toFixed(2) || 'N/A'}</td>
                             <td>$${trade.exitPrice?.toFixed(2) || 'N/A'}</td>
@@ -567,8 +591,8 @@
                 for (const [coin, price] of Object.entries(prices)) {
                     pricesHtml += `
                         <div class="price-item">
-                            <div>${coin.toUpperCase()}</div>
-                            <div>$${price.toFixed(2)}</div>
+                            <div style="font-weight: bold;">${coin.toUpperCase()}</div>
+                            <div style="font-size: 16px; font-weight: bold;">$${price.toFixed(2)}</div>
                         </div>
                     `;
                 }
@@ -586,13 +610,22 @@
                 if (newsData.news && newsData.news.length > 0) {
                     newsData.news.forEach(item => {
                         let sentimentClass = 'neutral';
-                        if (item.sentiment === 'Positive') sentimentClass = 'positive';
-                        else if (item.sentiment === 'Negative') sentimentClass = 'negative';
+                        let trendClass = '';
+                        if (item.sentiment === 'positive') {
+                            sentimentClass = 'positive';
+                            trendClass = 'trend-bull';
+                        } else if (item.sentiment === 'negative') {
+                            sentimentClass = 'negative';
+                            trendClass = 'trend-bear';
+                        }
                         
                         newsHtml += `
                             <div class="news-item ${sentimentClass}">
-                                <div style="font-weight: bold;">${item.title}</div>
-                                <div style="font-size: 12px; color: #bdc3c7;">${item.source}</div>
+                                <div style="font-weight: bold; margin-bottom: 5px;">${item.title}</div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+                                    <span>${item.source}</span>
+                                    <span class="${trendClass}">${item.trend} (${item.change24h})</span>
+                                </div>
                             </div>
                         `;
                     });
