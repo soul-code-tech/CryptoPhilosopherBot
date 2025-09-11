@@ -12,60 +12,9 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '.')));
 
-// Функция получения реального баланса с BingX Futures
-async function getBingXRealBalance() {
-  const BINGX_API_KEY = process.env.BINGX_API_KEY;
-  const BINGX_SECRET_KEY = process.env.BINGX_SECRET_KEY;
-  const BINGX_FUTURES_URL = 'https://open-api.bingx.com';
-  
-  const CryptoJS = require('crypto-js');
-
-  function signBingXRequest(params) {
-    const sortedParams = Object.keys(params)
-      .sort()
-      .map(key => `${key}=${params[key]}`)
-      .join('&');
-    return CryptoJS.HmacSHA256(sortedParams, BINGX_SECRET_KEY).toString(CryptoJS.enc.Hex);
-  }
-
-  try {
-    const timestamp = Date.now();
-    const params = { timestamp };
-    const signature = signBingXRequest(params);
-    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/user/balance?${new URLSearchParams(params)}&signature=${signature}`;
-
-    const response = await axios.get(url, {
-      headers: { 'X-BX-APIKEY': BINGX_API_KEY },
-      timeout: 10000
-    });
-
-    if (response.data.code === 0 && response.data.data) {
-      const assets = response.data.data.assets || response.data.data;
-      const assetsArray = Array.isArray(assets) ? assets : Object.values(assets);
-      const usdtAsset = assetsArray.find(asset => asset.asset === 'USDT');
-      if (usdtAsset && usdtAsset.walletBalance) {
-        return parseFloat(usdtAsset.walletBalance);
-      }
-    }
-    return null;
-  } catch (error) {
-    console.error('❌ Ошибка получения реального баланса с BingX:', error.message);
-    return null;
-  }
-}
-
 // API: Получение состояния бота
 app.get('/api/state', async (req, res) => {
   try {
-    // Обновляем реальный баланс каждые 5 минут
-    if (Date.now() % 300000 < 10000) {
-      const realBalance = await getBingXRealBalance();
-      if (realBalance !== null) {
-        bot.globalState.realBalance = realBalance;
-        console.log(`🏦 Реальный баланс обновлён: $${realBalance.toFixed(2)}`);
-      }
-    }
-
     res.json({
       balance: bot.globalState.balance,
       realBalance: bot.globalState.realBalance,
@@ -73,7 +22,9 @@ app.get('/api/state', async (req, res) => {
       stats: bot.globalState.stats,
       history: bot.globalState.history.slice(-50),
       platform: 'BingX Futures',
-      isRealMode: bot.globalState.isRealMode
+      isRealMode: bot.globalState.isRealMode,
+      tradeMode: bot.globalState.tradeMode,
+      testMode: bot.globalState.testMode
     });
   } catch (error) {
     res.status(500).json({ error: 'Ошибка получения состояния' });
@@ -95,7 +46,7 @@ app.post('/api/deposit', (req, res) => {
   }
 });
 
-// API: Переключение режима
+// API: Переключение режима (ДЕМО ↔ РЕАЛЬНЫЙ)
 app.post('/api/toggleMode', (req, res) => {
   try {
     const newMode = bot.toggleMode();
@@ -106,6 +57,47 @@ app.post('/api/toggleMode', (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Ошибка переключения режима' });
+  }
+});
+
+// API: Переключение торгового режима (stable ↔ scalping)
+app.post('/api/toggleTradeMode', (req, res) => {
+  try {
+    const newMode = bot.toggleTradeMode();
+    res.json({ 
+      success: true, 
+      tradeMode: newMode,
+      message: `Торговый режим переключён на: ${newMode}`
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Ошибка переключения торгового режима' });
+  }
+});
+
+// API: Включение тестового режима
+app.post('/api/toggleTestMode', (req, res) => {
+  try {
+    const newMode = bot.toggleTestMode();
+    res.json({ 
+      success: true, 
+      testMode: newMode,
+      message: `Тестовый режим ${newMode ? 'ВКЛЮЧЁН' : 'ВЫКЛЮЧЕН'}`
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Ошибка переключения тестового режима' });
+  }
+});
+
+// API: Принудительное обновление реального баланса
+app.post('/api/forceUpdateBalance', (req, res) => {
+  try {
+    bot.forceUpdateRealBalance();
+    res.json({ 
+      success: true, 
+      message: 'Запрошено обновление реального баланса'
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Ошибка обновления баланса' });
   }
 });
 
