@@ -107,6 +107,7 @@
             overflow: hidden;
             white-space: nowrap;
             box-sizing: border-box;
+            color: #e0e0e0;
         }
         .news-ticker-content {
             display: inline-block;
@@ -120,7 +121,6 @@
         .news-item {
             display: inline-block;
             margin-right: 50px;
-            color: #e0e0e0;
         }
         .positive { color: var(--greed-color); }
         .negative { color: var(--fear-color); }
@@ -354,14 +354,7 @@
         </div>
     </div>
 
-    <div class="menu">
-        <div class="menu-item active" onclick="showSection('dashboard')">📊 Панель</div>
-        <div class="menu-item" onclick="showSection('analysis')">🧠 Анализ</div>
-        <div class="menu-item" onclick="showSection('history')">📜 История</div>
-        <div class="menu-item" onclick="showSection('settings')">⚙️ Настройки</div>
-    </div>
-
-    <div id="dashboard" class="section">
+    <div class="section">
         <div class="dashboard-grid">
             <div>
                 <h2>🌍 Обзор рынка</h2>
@@ -412,41 +405,12 @@
                     <div>📊 Демо-баланс: $0.00</div>
                     <div>🏦 Реальный баланс: $0.00</div>
                 </div>
-                
-                <h3>📊 Открытые позиции</h3>
-                <div id="openPositions">
-                    <div class="loading">Загрузка позиций...</div>
-                </div>
             </div>
         </div>
-    </div>
 
-    <div id="analysis" class="section" style="display: none;">
-        <h2>🧠 Активные сделки и прогресс</h2>
+        <h2>📊 Активные сделки и прогресс</h2>
         <div id="progressDisplay">
             <div class="loading">Нет открытых позиций</div>
-        </div>
-    </div>
-
-    <div id="history" class="section" style="display: none;">
-        <h2>📈 Статистика торговли</h2>
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div>Сделок всего</div>
-                <div id="totalTrades">0</div>
-            </div>
-            <div class="stat-card">
-                <div>Win Rate</div>
-                <div id="winRate">0.0%</div>
-            </div>
-            <div class="stat-card">
-                <div>Чистая прибыль</div>
-                <div id="totalProfit">$0.00</div>
-            </div>
-            <div class="stat-card">
-                <div>Макс. просадка</div>
-                <div id="maxDrawdown">0.0%</div>
-            </div>
         </div>
 
         <h2>📜 История сделок</h2>
@@ -470,17 +434,6 @@
         </table>
     </div>
 
-    <div id="settings" class="section" style="display: none;">
-        <h2>⚙️ Настройки</h2>
-        <div class="newsletter">
-            <h3>✉️ Подписка на рассылку</h3>
-            <p>Получайте уведомления о сделках и важных событиях на почту</p>
-            <input type="email" id="emailInput" placeholder="Ваш email">
-            <button onclick="subscribeNewsletter()">Подписаться</button>
-            <div id="newsletterStatus"></div>
-        </div>
-    </div>
-
     <!-- Всплывающая подсказка-помощник -->
     <div id="helperModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center;">
         <div style="background: #2c3e50; padding: 20px; border-radius: 15px; max-width: 600px; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
@@ -501,34 +454,6 @@
     <script>
         let lastLog = '';
         let currentSection = 'dashboard';
-
-        function showSection(sectionId) {
-            document.getElementById('dashboard').style.display = 'none';
-            document.getElementById('analysis').style.display = 'none';
-            document.getElementById('history').style.display = 'none';
-            document.getElementById('settings').style.display = 'none';
-            
-            document.getElementById(sectionId).style.display = 'block';
-            
-            document.querySelectorAll('.menu-item').forEach(item => {
-                item.classList.remove('active');
-            });
-            
-            const buttons = document.querySelectorAll('.menu-item');
-            for (let btn of buttons) {
-                if (
-                    (sectionId === 'dashboard' && btn.textContent.includes('Панель')) ||
-                    (sectionId === 'analysis' && btn.textContent.includes('Анализ')) ||
-                    (sectionId === 'history' && btn.textContent.includes('История')) ||
-                    (sectionId === 'settings' && btn.textContent.includes('Настройки'))
-                ) {
-                    btn.classList.add('active');
-                    break;
-                }
-            }
-            
-            currentSection = sectionId;
-        }
 
         async function updateState() {
             try {
@@ -555,24 +480,7 @@
                 });
                 document.getElementById(`risk${state.riskLevel.charAt(0).toUpperCase() + state.riskLevel.slice(1)}`).classList.add('active');
 
-                // Открытые позиции
-                let positionsHtml = '';
-                let hasOpen = false;
-                for (const [coin, position] of Object.entries(state.positions)) {
-                    if (position && position.type) {
-                        hasOpen = true;
-                        const isLong = position.type === 'LONG';
-                        positionsHtml += `
-                            <div style="margin: 5px 0; padding: 8px; background: #232a3a; border-radius: 8px;">
-                                → ${coin}: <span class="${isLong ? 'long-trade' : 'short-trade'}">${position.type}</span> 
-                                ${position.size?.toFixed(6) || '?'} @ $${position.entryPrice?.toFixed(2) || '?'}
-                            </div>
-                        `;
-                    }
-                }
-                document.getElementById('openPositions').innerHTML = hasOpen ? positionsHtml : 'Нет открытых позиций';
-
-                // Прогресс сделок (в разделе "Анализ")
+                // Прогресс сделок (на главном экране)
                 let progressHtml = '';
                 state.history.forEach(trade => {
                     if (trade.status === 'OPEN') {
