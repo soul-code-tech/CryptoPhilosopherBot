@@ -97,12 +97,13 @@ app.post('/api/setRiskLevel', (req, res) => {
 });
 
 // API: Принудительное обновление реального баланса
-app.post('/api/forceUpdateBalance', (req, res) => {
+app.post('/api/forceUpdateBalance', async (req, res) => {
   try {
-    bot.forceUpdateRealBalance();
+    const balance = await bot.forceUpdateRealBalance();
     res.json({ 
       success: true, 
-      message: 'Запрошено обновление реального баланса'
+      balance: balance,
+      message: 'Баланс успешно обновлён'
     });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Ошибка обновления баланса' });
@@ -116,6 +117,19 @@ app.get('/api/news', async (req, res) => {
     res.json({ news });
   } catch (error) {
     res.status(500).json({ error: 'Ошибка получения новостей' });
+  }
+});
+
+// API: Тестирование API BingX (реальная сделка на 30% баланса)
+app.post('/api/testBingX', async (req, res) => {
+  try {
+    const result = await bot.testBingXAPI();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Ошибка при тестировании: ' + error.message 
+    });
   }
 });
 
