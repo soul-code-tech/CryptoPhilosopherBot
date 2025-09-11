@@ -251,6 +251,9 @@
         .update-btn {
             background: linear-gradient(45deg, #27ae60, #229954) !important;
         }
+        .help-btn {
+            background: linear-gradient(45deg, #9b59b6, #8e44ad) !important;
+        }
         .time-display {
             text-align: center;
             padding: 10px;
@@ -284,6 +287,20 @@
             text-align: center;
             padding: 20px;
             color: #bdc3c7;
+        }
+        .log-entry {
+            background: rgba(255,255,255,0.05);
+            padding: 8px;
+            border-radius: 8px;
+            margin: 5px 0;
+            font-size: 13px;
+        }
+        .philosophy-log {
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
         }
     </style>
 </head>
@@ -347,7 +364,8 @@
                     <div style="margin: 15px 0; display: flex; gap: 10px; flex-wrap: wrap;">
                         <button onclick="toggleMode()">🔄 Переключить режим: <span id="modeToggleText">ДЕМО</span></button>
                         <button onclick="forceUpdateBalance()" class="update-btn">💰 Обновить баланс</button>
-                        <button onclick="testBingXAPI()" class="test-btn">🧪 Тест API (30% баланса)</button>
+                        <button onclick="testBingXAPI()" class="test-btn">🧪 Тест API (30% риск)</button>
+                        <button onclick="showHelper()" class="help-btn">💡 Помощь</button>
                     </div>
                 </div>
                 
@@ -367,7 +385,7 @@
     <div id="analysis" class="section" style="display: none;">
         <h2>🧠 Лог философского анализа</h2>
         <div class="status-bar" id="statusBar">Вася мониторит рынок...</div>
-        <div id="philosophyLog">
+        <div class="philosophy-log" id="philosophyLog">
             <div class="loading">Ожидание анализа...</div>
         </div>
     </div>
@@ -427,6 +445,23 @@
             <input type="email" id="emailInput" placeholder="Ваш email">
             <button onclick="subscribeNewsletter()">Подписаться</button>
             <div id="newsletterStatus"></div>
+        </div>
+    </div>
+
+    <!-- Всплывающая подсказка-помощник -->
+    <div id="helperModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center;">
+        <div style="background: #2c3e50; padding: 20px; border-radius: 15px; max-width: 600px; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+            <h3 style="color: #f8a5c2; text-align: center;">💡 Помощник по работе с ботом</h3>
+            <ul style="line-height: 1.8; font-size: 14px;">
+                <li><strong>РЕАЛЬНЫЙ РЕЖИМ:</strong> Бот торгует вашими реальными деньгами на фьючерсном счете BingX.</li>
+                <li><strong>ДЕМО-РЕЖИМ:</strong> Бот торгует виртуальными деньгами с той же логикой и комиссиями.</li>
+                <li><strong>ВАЖНО:</strong> Перед торговлей в реальном режиме переведите USDT на <strong>фьючерсный счет</strong> в интерфейсе BingX.</li>
+                <li><strong>ТЕСТ API:</strong> Кнопка "Тест API" открывает реальную позицию с риском 30% от вашего баланса (не 30% баланса).</li>
+                <li><strong>АНАЛИЗ:</strong> Здесь отображаются активные сделки и лог философского анализа.</li>
+                <li><strong>ИСТОРИЯ:</strong> Здесь отображаются только завершённые сделки.</li>
+                <li><strong>РИСК-МЕНЕДЖМЕНТ:</strong> Бот всегда рискует только заданным процентом от депозита (по умолчанию 1%).</li>
+            </ul>
+            <button onclick="document.getElementById('helperModal').style.display='none'" style="width: 100%; padding: 10px; margin-top: 15px; background: linear-gradient(45deg, #3498db, #2c3e50); color: white; border: none; border-radius: 8px; cursor: pointer;">Понятно</button>
         </div>
     </div>
 
@@ -533,28 +568,33 @@
                 });
                 document.getElementById('progressDisplay').innerHTML = progressHtml || 'Нет открытых позиций';
 
-                // История сделок
+                // История сделок (только CLOSED)
                 let historyHtml = '';
-                state.history.slice(-10).forEach(trade => {
-                    const profit = trade.profitPercent ? `${(trade.profitPercent * 100).toFixed(2)}%` : '-';
-                    const profitClass = trade.profitPercent > 0 ? 'profit-positive' : trade.profitPercent < 0 ? 'profit-negative' : '';
-                    const isLong = trade.type === 'LONG';
-                    
-                    historyHtml += `
-                        <tr>
-                            <td style="padding: 8px; font-size: 12px;">${trade.timestamp}</td>
-                            <td style="padding: 8px;">${trade.coin}</td>
-                            <td style="padding: 8px;"><span style="color: ${isLong ? '#27ae60' : '#e74c3c'}; font-weight: bold;">${trade.type}</span></td>
-                            <td style="padding: 8px;">${trade.leverage || '1'}x</td>
-                            <td style="padding: 8px;">$${trade.entryPrice?.toFixed(2) || 'N/A'}</td>
-                            <td style="padding: 8px;">$${trade.exitPrice?.toFixed(2) || 'N/A'}</td>
-                            <td style="padding: 8px; color: ${profit.includes('-') ? '#e74c3c' : profit === '-' ? 'white' : '#27ae60'}">${profit}</td>
-                        </tr>
-                    `;
-                });
-                document.getElementById('tradeHistory').innerHTML = historyHtml || '<tr><td colspan="7" style="padding: 20px; text-align: center;">Нет сделок</td></tr>';
+                const closedTrades = state.history.filter(trade => trade.status === 'CLOSED').slice(-10);
+                if (closedTrades.length > 0) {
+                    closedTrades.forEach(trade => {
+                        const profit = trade.profitPercent ? `${(trade.profitPercent * 100).toFixed(2)}%` : '-';
+                        const profitClass = trade.profitPercent > 0 ? 'profit-positive' : trade.profitPercent < 0 ? 'profit-negative' : '';
+                        const isLong = trade.type === 'LONG';
+                        
+                        historyHtml += `
+                            <tr>
+                                <td style="padding: 8px; font-size: 12px;">${trade.timestamp}</td>
+                                <td style="padding: 8px;">${trade.coin}</td>
+                                <td style="padding: 8px;"><span style="color: ${isLong ? '#27ae60' : '#e74c3c'}; font-weight: bold;">${trade.type}</span></td>
+                                <td style="padding: 8px;">${trade.leverage || '1'}x</td>
+                                <td style="padding: 8px;">$${trade.entryPrice?.toFixed(2) || 'N/A'}</td>
+                                <td style="padding: 8px;">$${trade.exitPrice?.toFixed(2) || 'N/A'}</td>
+                                <td style="padding: 8px; color: ${profit.includes('-') ? '#e74c3c' : profit === '-' ? 'white' : '#27ae60'}">${profit}</td>
+                            </tr>
+                        `;
+                    });
+                } else {
+                    historyHtml = '<tr><td colspan="7" style="padding: 20px; text-align: center;">Нет завершённых сделок</td></tr>';
+                }
+                document.getElementById('tradeHistory').innerHTML = historyHtml;
 
-                // Лог философского анализа
+                // Лог философского анализа (включая активные сделки)
                 const now = new Date().toLocaleTimeString();
                 let logHtml = '';
                 
@@ -566,6 +606,18 @@
                     lastLog = 'trade';
                 } else {
                     logHtml = `<div class="log-entry">[${now}] 🔍 Вася продолжает мониторить рынок...</div>`;
+                }
+
+                // Добавляем информацию об активных позициях в лог
+                for (const [coin, position] of Object.entries(state.positions)) {
+                    if (position && position.type) {
+                        const isLong = position.type === 'LONG';
+                        logHtml += `
+                            <div class="log-entry" style="border-left: 4px solid ${isLong ? '#27ae60' : '#e74c3c'};">
+                                📈 АКТИВНАЯ ПОЗИЦИЯ: ${coin} — ${position.type} @ $${position.entryPrice?.toFixed(2)} (Плечо: ${position.leverage}x)
+                            </div>
+                        `;
+                    }
                 }
 
                 document.getElementById('philosophyLog').innerHTML = logHtml;
@@ -765,7 +817,7 @@
         }
 
         async function testBingXAPI() {
-            if (!confirm('Вы уверены? Это откроет РЕАЛЬНУЮ позицию на 30% от вашего баланса на BingX.')) {
+            if (!confirm('Вы уверены? Это откроет РЕАЛЬНУЮ позицию с риском 30% от вашего баланса на BingX.')) {
                 return;
             }
 
@@ -785,6 +837,10 @@
             } catch (error) {
                 alert('Ошибка соединения с сервером');
             }
+        }
+
+        function showHelper() {
+            document.getElementById('helperModal').style.display = 'flex';
         }
 
         async function subscribeNewsletter() {
