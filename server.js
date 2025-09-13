@@ -169,7 +169,7 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
   try {
     // ✅ ВАЖНО: Symbol должен быть именно BTCUSDT, ETHUSDT и т.д.
     const baseSymbol = symbol.toUpperCase().trim();
-    const fullSymbol = `${baseSymbol}-USDT`;
+    const fullSymbol = '${baseSymbol}-USDT';
 
     const params = {
       symbol: fullSymbol, // ✅ ТОЧНО: BTC-USDT, ETH-USDT
@@ -221,8 +221,8 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
 // ==========================
 async function getCurrentPrices() {
   try {
-    // ✅ ВАЖНО: Символы должны быть с USDT
-    const symbols = globalState.watchlist.map(coin => `${coin.symbol}USDT`).join(',');
+    // ✅ ВАЖНО: Символы должны быть с -USDT
+    const symbols = globalState.watchlist.map(coin => '${coin.symbol}-USDT').join(',');
     
     const params = {
       symbols, // → "BTC-USDT,ETH-USDT,SOL-USDT,XRP-USDT"
@@ -246,7 +246,7 @@ async function getCurrentPrices() {
       const prices = {};
       response.data.data.forEach(item => {
         // Убираем USDT из ответа, чтобы получить "btc", "eth" и т.д.
-        const cleanSymbol = item.symbol.replace('USDT', '').toLowerCase();
+        const cleanSymbol = item.symbol.replace('-USDT', '').toLowerCase();
         prices[cleanSymbol] = parseFloat(item.price);
       });
       globalState.currentPrices = prices;
@@ -272,7 +272,7 @@ async function setBingXLeverage(symbol, leverage) {
     }
     const timestamp = Date.now();
     const params = {
-      symbol: `${symbol.toUpperCase()}-USDT`, // ✅ BTCUSDT
+      symbol: '${symbol.toUpperCase()}-USDT', // ✅ BTC-USDT
       side: 'LONG',
       leverage: leverage.toString(),
       timestamp: timestamp
@@ -316,7 +316,7 @@ async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null
     }
     const timestamp = Date.now();
     const params = {
-      symbol: `${symbol.toUpperCase()}-USDT`, // ✅ BTC-USDT
+      symbol: '${symbol.toUpperCase()}-USDT', // ✅ BTC-USDT
       side: side,
       type: type,
       quantity: quantity.toFixed(6),
@@ -356,8 +356,8 @@ async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null
 // ==========================
 async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss, takeProfit) {
   const symbol = coin.toUpperCase();
-  console.log(`🌐 Отправка ${direction} ордера на BingX Futures: ${size} ${symbol} с плечом ${leverage}x`);
-  console.log(`🔄 Текущий режим: ${globalState.isRealMode ? 'РЕАЛЬНЫЙ' : 'ДЕМО'}`);
+  console.log(`🌐 Отправка ${direction} ордера на BingX Futures: ${size} ${symbol}-USDT с плечом ${leverage}x`);
+  console.log(`🔄 Текущий режим: ${globalState.isRealMode ? 'РЕАЛЬНЫЙ'}`);
   console.log(`⚡ Торговый режим: ${globalState.tradeMode}`);
   console.log(`💣 Уровень риска: ${globalState.riskLevel}`);
   
