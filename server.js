@@ -42,23 +42,7 @@ let globalState = {
     { symbol: 'BTC-USD', name: 'bitcoin' },
     { symbol: 'ETH-USD', name: 'ethereum' },
     { symbol: 'SOL-USD', name: 'solana' },
-    { symbol: 'XRP-USD', name: 'ripple' },
-    { symbol: 'ADA-USD', name: 'cardano' },
-    { symbol: 'DOT-USD', name: 'polkadot' },
-    { symbol: 'DOGE-USD', name: 'dogecoin' },
-    { symbol: 'MATIC-USD', name: 'polygon' },
-    { symbol: 'LTC-USD', name: 'litecoin' },
-    { symbol: 'BCH-USD', name: 'bitcoin-cash' },
-    { symbol: 'UNI-USD', name: 'uniswap' },
-    { symbol: 'LINK-USD', name: 'chainlink' },
-    { symbol: 'AAVE-USD', name: 'aave' },
-    { symbol: 'AVAX-USD', name: 'avalanche' },
-    { symbol: 'ATOM-USD', name: 'cosmos' },
-    { symbol: 'FIL-USD', name: 'filecoin' },
-    { symbol: 'ALGO-USD', name: 'algorand' },
-    { symbol: 'NEAR-USD', name: 'near' },
-    { symbol: 'SUSHI-USD', name: 'sushi' },
-    { symbol: 'MKR-USD', name: 'maker' }
+    { symbol: 'XRP-USD', name: 'ripple' }
   ],
   isRealMode: false, // false = демо, true = реальный режим
   tradeMode: 'adaptive', // 'adaptive' (адаптивный режим), 'scalping', 'swing'
@@ -77,9 +61,6 @@ globalState.watchlist.forEach(coin => {
   globalState.marketMemory.consecutiveTrades[coin.name] = 0;
   globalState.marketMemory.volatilityHistory[coin.name] = [];
   globalState.marketMemory.fundamentalData[coin.name] = {
-    hashRate: null,
-    activeAddresses: null,
-    transactions: null,
     developerActivity: null,
     socialSentiment: null
   };
@@ -178,7 +159,7 @@ async function getBingXRealBalance() {
     
     console.log('🌐 [БАЛАНС] Отправляю ПОДПИСАННЫЙ запрос к:', url);
     
-    const response = await getBingXData(url, {});
+    const response = await getBingXData(url, params);
     if (!response) return null;
     
     console.log('✅ [БАЛАНС] Получен ответ от BingX:', JSON.stringify(response, null, 2));
@@ -915,6 +896,7 @@ async function getFundamentalData(coin) {
     if (data.developer_data) {
       fundamentalData.developerActivity = data.developer_data.commits_30d || 0;
     }
+    // ❌ УБРАНО: НЕ ПЕРЕЗАПИСЫВАЕМ через twitter_followers!
     globalState.fundamentalCache[cacheKey] = {
       fundamentalData,
       timestamp: now
@@ -1183,6 +1165,7 @@ app.get('/login', (req, res) => {
 app.post('/login', (req, res) => {
   const { password } = req.body;
   if (password === APP_PASSWORD) {
+    res.cookie('authToken', 'true', { path: '/', maxAge: 3600000 }); // Установить cookie на 1 час
     res.json({ success: true });
   } else {
     res.status(401).json({ success: false, message: 'Неверный пароль' });
@@ -1190,7 +1173,7 @@ app.post('/login', (req, res) => {
 });
 
 app.get('/logout', (req, res) => {
-  res.clearCookie('authToken');
+  res.clearCookie('authToken', { path: '/' });
   res.redirect('/login');
 });
 
@@ -1579,6 +1562,6 @@ app.use((err, req, res, next) => {
 // ==========================
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  console.log(`🌐 Доступ к интерфейсу: http://localhost:${PORT}`);
+  console.log(`🌐 Доступ к интерфейсу: https://cryptophilosopherbot-0o69.onrender.com`);
   console.log(`🔐 Пароль для входа: ${APP_PASSWORD}`);
 });
