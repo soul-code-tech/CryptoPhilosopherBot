@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>📈 Трейдинг Бот Вася 3000 Уникальный</title>
+    <title>📈 Трейдинг Бот Вася 3000 Уникальный (BingX)</title>
     
     <!-- PWA Manifest -->
     <link rel="manifest" href="/manifest.json">
@@ -297,13 +297,6 @@
             padding: 20px;
             color: #bdc3c7;
         }
-        .log-entry {
-            background: #232a3a;
-            padding: 8px;
-            border-radius: 8px;
-            margin: 5px 0;
-            font-size: 13px;
-        }
         .philosophy-log {
             max-height: 300px;
             overflow-y: auto;
@@ -339,11 +332,68 @@
         .profit-negative {
             color: var(--short-color);
         }
+        /* Модальное окно для входа */
+        #loginModal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        #loginModalContent {
+            background: #2c3e50;
+            padding: 20px;
+            border-radius: 15px;
+            max-width: 400px;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        /* Модальное окно для помощи */
+        #helperModal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        #helperModalContent {
+            background: #2c3e50;
+            padding: 20px;
+            border-radius: 15px;
+            max-width: 600px;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
     </style>
 </head>
 <body>
+    <!-- Модальное окно для входа -->
+    <div id="loginModal">
+        <div id="loginModalContent">
+            <h3 style="color: #f8a5c2; text-align: center;">🔐 Вход в систему</h3>
+            <div style="margin: 15px 0;">
+                <input type="password" id="loginPassword" placeholder="Введите пароль сервера" style="width: 100%; padding: 10px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #3a4254; background: #1e222d; color: white;">
+                <button onclick="login()" style="width: 100%; padding: 10px; background: linear-gradient(45deg, #3498db, #2c3e50); color: white; border: none; border-radius: 8px; cursor: pointer;">Войти</button>
+            </div>
+            <div style="text-align: center; margin-top: 15px; font-size: 12px; color: #bdc3c7;">
+                Пароль можно найти в файле .env (переменная SERVER_PASSWORD)
+            </div>
+            <button onclick="document.getElementById('loginModal').style.display='none'" style="width: 100%; padding: 10px; margin-top: 15px; background: #e74c3c; color: white; border: none; border-radius: 8px; cursor: pointer;">Закрыть</button>
+        </div>
+    </div>
+
     <div class="header">
-        <h1>📈 Трейдинг Бот Вася 3000 Уникальный</h1>
+        <h1>📈 Трейдинг Бот Вася 3000 Уникальный (BingX)</h1>
         <p><em>Философия + риск-менеджмент + плечо = прибыль</em></p>
     </div>
 
@@ -378,8 +428,9 @@
                     <div style="margin: 15px 0;">
                         <h3>Режим торговли</h3>
                         <div class="trade-mode">
-                            <button class="trade-btn" onclick="toggleTradeMode('stable')" id="tradeStable">Стабильный</button>
+                            <button class="trade-btn" onclick="toggleTradeMode('adaptive')" id="tradeAdaptive">Адаптивный</button>
                             <button class="trade-btn" onclick="toggleTradeMode('scalping')" id="tradeScalping">Скальпинг</button>
+                            <button class="trade-btn" onclick="toggleTradeMode('swing')" id="tradeSwing">Свинг</button>
                         </div>
                     </div>
                     
@@ -435,8 +486,8 @@
     </div>
 
     <!-- Всплывающая подсказка-помощник -->
-    <div id="helperModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center;">
-        <div style="background: #2c3e50; padding: 20px; border-radius: 15px; max-width: 600px; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+    <div id="helperModal">
+        <div id="helperModalContent">
             <h3 style="color: #f8a5c2; text-align: center;">💡 Помощник по работе с ботом</h3>
             <ul style="line-height: 1.8; font-size: 14px;">
                 <li><strong>РЕАЛЬНЫЙ РЕЖИМ:</strong> Бот торгует вашими реальными деньгами на фьючерсном счете BingX.</li>
@@ -446,6 +497,7 @@
                 <li><strong>АНАЛИЗ:</strong> Здесь отображаются только активные сделки с прогрессом.</li>
                 <li><strong>ИСТОРИЯ:</strong> Здесь отображается статистика и завершённые сделки.</li>
                 <li><strong>РИСК-МЕНЕДЖМЕНТ:</strong> Бот всегда рискует только заданным процентом от депозита (по умолчанию 1%).</li>
+                <li><strong>АДАПТИВНЫЙ РЕЖИМ:</strong> Бот автоматически подстраивает параметры под рыночные условия.</li>
             </ul>
             <button onclick="document.getElementById('helperModal').style.display='none'" style="width: 100%; padding: 10px; margin-top: 15px; background: linear-gradient(45deg, #3498db, #2c3e50); color: white; border: none; border-radius: 8px; cursor: pointer;">Понятно</button>
         </div>
@@ -455,9 +507,37 @@
         let lastLog = '';
         let currentSection = 'dashboard';
 
+        // Проверяем наличие сохраненного пароля и показываем форму входа, если нужно
+        function checkAuthentication() {
+            const password = localStorage.getItem('serverPassword');
+            if (!password) {
+                document.getElementById('loginModal').style.display = 'flex';
+                return false;
+            }
+            return true;
+        }
+
         async function updateState() {
+            // Проверяем аутентификацию
+            if (!checkAuthentication()) {
+                return;
+            }
+
             try {
-                const response = await fetch('/api/state');
+                const password = localStorage.getItem('serverPassword');
+                const response = await fetch('/api/state', {
+                    headers: {
+                        'Authorization': `Bearer ${password}`
+                    }
+                });
+                
+                if (response.status === 401) {
+                    // Если Unauthorized, запросить пароль заново
+                    localStorage.removeItem('serverPassword');
+                    document.getElementById('loginModal').style.display = 'flex';
+                    return;
+                }
+                
                 const state = await response.json();
 
                 // Обновляем баланс
@@ -549,6 +629,11 @@
 
             } catch (error) {
                 console.error('Ошибка обновления:', error);
+                // Если ошибка подключения, показываем сообщение
+                document.getElementById('balanceDisplay').innerHTML = `
+                    <div>📊 Демо-баланс: Ошибка соединения</div>
+                    <div>🏦 Реальный баланс: Ошибка соединения</div>
+                `;
             }
         }
 
@@ -610,20 +695,6 @@
             document.getElementById('newsTickerContent').innerHTML = tickerHtml;
         }
 
-        // Функция обновления рыночных данных
-        async function updateMarketData() {
-            try {
-                const newsResponse = await fetch('/api/news');
-                const newsData = await newsResponse.json();
-                
-                globalState.marketMemory.news = newsData.news || [];
-                updateNewsTicker(globalState.marketMemory.news);
-
-            } catch (error) {
-                console.error('Ошибка обновления рыночных данных:', error);
-            }
-        }
-
         async function depositFunds() {
             const amount = parseFloat(document.getElementById('depositAmount').value);
             if (isNaN(amount) || amount <= 0) {
@@ -632,12 +703,22 @@
             }
 
             try {
+                const password = localStorage.getItem('serverPassword');
                 const response = await fetch('/api/deposit', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${password}`
+                    },
                     body: JSON.stringify({ amount })
                 });
 
+                if (response.status === 401) {
+                    localStorage.removeItem('serverPassword');
+                    document.getElementById('loginModal').style.display = 'flex';
+                    return;
+                }
+                
                 const result = await response.json();
                 if (result.success) {
                     alert(`Демо-баланс пополнен! Новый баланс: $${result.balance.toFixed(2)}`);
@@ -652,11 +733,21 @@
 
         async function toggleMode() {
             try {
+                const password = localStorage.getItem('serverPassword');
                 const response = await fetch('/api/toggleMode', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${password}`
+                    }
                 });
 
+                if (response.status === 401) {
+                    localStorage.removeItem('serverPassword');
+                    document.getElementById('loginModal').style.display = 'flex';
+                    return;
+                }
+                
                 const result = await response.json();
                 if (result.success) {
                     updateState();
@@ -671,15 +762,23 @@
 
         async function toggleTradeMode(mode) {
             try {
-                // Сначала переключаем режим торговли
+                const password = localStorage.getItem('serverPassword');
                 const response = await fetch('/api/toggleTradeMode', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${password}`
+                    }
                 });
 
+                if (response.status === 401) {
+                    localStorage.removeItem('serverPassword');
+                    document.getElementById('loginModal').style.display = 'flex';
+                    return;
+                }
+                
                 const result = await response.json();
                 if (result.success) {
-                    // Затем обновляем интерфейс
                     updateState();
                     alert(result.message);
                 } else {
@@ -692,12 +791,22 @@
 
         async function setRiskLevel(level) {
             try {
+                const password = localStorage.getItem('serverPassword');
                 const response = await fetch('/api/setRiskLevel', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${password}`
+                    },
                     body: JSON.stringify({ level })
                 });
 
+                if (response.status === 401) {
+                    localStorage.removeItem('serverPassword');
+                    document.getElementById('loginModal').style.display = 'flex';
+                    return;
+                }
+                
                 const result = await response.json();
                 if (result.success) {
                     updateState();
@@ -712,11 +821,21 @@
 
         async function forceUpdateBalance() {
             try {
+                const password = localStorage.getItem('serverPassword');
                 const response = await fetch('/api/forceUpdateBalance', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${password}`
+                    }
                 });
 
+                if (response.status === 401) {
+                    localStorage.removeItem('serverPassword');
+                    document.getElementById('loginModal').style.display = 'flex';
+                    return;
+                }
+                
                 const result = await response.json();
                 if (result.success) {
                     alert('✅ Баланс успешно обновлён: $' + result.balance.toFixed(2));
@@ -735,11 +854,21 @@
             }
 
             try {
+                const password = localStorage.getItem('serverPassword');
                 const response = await fetch('/api/testBingX', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${password}`
+                    }
                 });
 
+                if (response.status === 401) {
+                    localStorage.removeItem('serverPassword');
+                    document.getElementById('loginModal').style.display = 'flex';
+                    return;
+                }
+                
                 const result = await response.json();
                 if (result.success) {
                     alert('✅ ' + result.message);
@@ -756,32 +885,28 @@
             document.getElementById('helperModal').style.display = 'flex';
         }
 
-        async function subscribeNewsletter() {
-            const email = document.getElementById('emailInput').value;
-            if (!email || !email.includes('@')) {
-                alert('Введите корректный email');
+        function login() {
+            const password = document.getElementById('loginPassword').value;
+            if (!password) {
+                alert('Пожалуйста, введите пароль');
                 return;
             }
 
-            try {
-                document.getElementById('newsletterStatus').innerHTML = `
-                    <div style="color: #27ae60; margin-top: 10px;">✅ Вы успешно подписались на рассылку!</div>
-                    <div style="font-size: 12px; color: #bdc3c7; margin-top: 5px;">Вы будете получать уведомления о сделках и важных событиях.</div>
-                `;
-                alert('Вы успешно подписались на рассылку!');
-            } catch (error) {
-                alert('Ошибка подписки: ' + error.message);
-            }
+            // Сохраняем пароль в localStorage
+            localStorage.setItem('serverPassword', password);
+            
+            // Скрываем модальное окно
+            document.getElementById('loginModal').style.display = 'none';
+            
+            // Обновляем состояние
+            updateState();
         }
 
         // Обновляем каждые 3 секунды
         setInterval(updateState, 3000);
-        // Обновляем рыночные данные каждые 30 секунд
-        setInterval(updateMarketData, 30000);
         
         // Первый запуск
         updateState();
-        updateMarketData();
     </script>
 </body>
 </html>
