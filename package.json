@@ -1,5 +1,5 @@
 {
-  "name": "Vasya3000-RealTrading",
+  "name": "Vasya3000-BingX-RealTrading",
   "version": "1.0.0",
   "description": "Трейдинг Бот Вася 3000 Уникальный — реальная торговля на BingX Futures",
   "main": "server.js",
@@ -10,6 +10,7 @@
     "express": "^4.18.2",
     "cors": "^2.8.5",
     "axios": "^1.6.0",
-    "crypto-js": "^4.2.0"
+    "crypto-js": "^4.2.0",
+    "moment": "^2.29.4"
   }
 }
