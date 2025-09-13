@@ -68,11 +68,12 @@ globalState.watchlist.forEach(coin => {
 });
 
 // ==========================
-// КОНФИГУРАЦИЯ BINGX API
+// КОНФИГУРАЦИЯ BINGX API v3 + АЛЬТЕРНАТИВНЫЙ ДОМЕН
 // ==========================
 const BINGX_API_KEY = process.env.BINGX_API_KEY;
 const BINGX_SECRET_KEY = process.env.BINGX_SECRET_KEY;
-const BINGX_FUTURES_URL = process.env.BINGX_API_DOMAIN || 'https://open-api.bingx.com';
+// ✅ Используем альтернативный домен и v3 API
+const BINGX_FUTURES_URL = process.env.BINGX_API_DOMAIN || 'https://open-api.bingx.io';
 
 // ==========================
 // ФУНКЦИЯ: Подпись запроса (только параметры, БЕЗ signature и recvWindow)
@@ -110,7 +111,7 @@ async function getFearAndGreedIndex() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение реального баланса
+// ФУНКЦИЯ: Получение реального баланса (v2, так как v3 не имеет user/balance)
 // ==========================
 async function getBingXRealBalance() {
   try {
@@ -158,7 +159,7 @@ async function getBingXRealBalance() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение исторических свечей
+// ФУНКЦИЯ: Получение исторических свечей (v2, v3 не имеет klines)
 // ==========================
 async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
   try {
@@ -202,44 +203,60 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение текущих цен
+// ФУНКЦИЯ: Получение текущих цен — ИСПОЛЬЗУЕМ V3 API
 // ==========================
 async function getCurrentPrices() {
   try {
-    const symbols = globalState.watchlist.map(coin => coin.symbol).join(',');
-    const timestamp = Date.now();
-    const params = { symbols, timestamp, recvWindow: 0 };
+    const prices = {};
 
-    const signature = signBingXRequest(params);
-    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/quote/ticker/price?symbols=${symbols}&timestamp=${timestamp}&recvWindow=0&signature=${signature}`;
+    for (const coin of globalState.watchlist) {
+      const symbol = coin.symbol; // "BTC-USDT"
+      const timestamp = Date.now();
+      const params = {
+        symbol,
+        timestamp,
+        recvWindow: 0
+      };
 
-    console.log(`🌐 Получение текущих цен: GET ${url}`);
+      const signature = signBingXRequest(params);
+      // ✅ Используем v3 API
+      const url = `${BINGX_FUTURES_URL}/openApi/swap/v3/quote/price?symbol=${params.symbol}&timestamp=${params.timestamp}&recvWindow=0&signature=${signature}`;
 
-    const response = await axios.get(url, {
-      headers: { 'X-BX-APIKEY': BINGX_API_KEY },
-      timeout: 10000
-    });
+      console.log(`🌐 Получение цены для ${symbol}: GET ${url}`);
 
-    if (response.data.code === 0 && Array.isArray(response.data.data)) {
-      const prices = {};
-      response.data.data.forEach(item => {
-        const cleanSymbol = item.symbol.replace('-USDT', '').toLowerCase();
-        prices[cleanSymbol] = parseFloat(item.price);
-      });
-      globalState.currentPrices = prices;
-      return prices;
-    } else {
-      console.error('❌ Ошибка получения цен:', response.data.msg);
-      return {};
+      try {
+        const response = await axios.get(url, {
+          headers: { 'X-BX-APIKEY': BINGX_API_KEY },
+          timeout: 10000
+        });
+
+        if (response.data.code === 0 && response.data.data) {
+          const price = parseFloat(response.data.data.price);
+          const cleanSymbol = symbol.replace('-USDT', '').toLowerCase();
+          prices[cleanSymbol] = price;
+          console.log(`✅ Цена для ${symbol}: $${price}`);
+        } else {
+          console.error(`❌ Ошибка для ${symbol}:`, response.data.msg);
+        }
+      } catch (error) {
+        console.error(`❌ Не удалось получить цену для ${symbol}:`, error.message);
+      }
+
+      // ✅ Задержка 2 сек между запросами к BingX
+      await new Promise(r => setTimeout(r, 2000));
     }
+
+    globalState.currentPrices = prices;
+    return prices;
+
   } catch (error) {
-    console.error('❌ Ошибка получения текущих цен:', error.message);
+    console.error('❌ Глобальная ошибка получения текущих цен:', error.message);
     return {};
   }
 }
 
 // ==========================
-// ФУНКЦИЯ: Установка плеча
+// ФУНКЦИЯ: Установка плеча (v2, v3 не имеет leverage)
 // ==========================
 async function setBingXLeverage(symbol, leverage) {
   try {
@@ -282,7 +299,7 @@ async function setBingXLeverage(symbol, leverage) {
 }
 
 // ==========================
-// ФУНКЦИЯ: Размещение ордера
+// ФУНКЦИЯ: Размещение ордера (v2, v3 не имеет order)
 // ==========================
 async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null, leverage) {
   try {
@@ -1002,7 +1019,7 @@ app.listen(PORT, '0.0.0.0', () => {
 // ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
 // ==========================
 (async () => {
-  console.log('🤖 ЗАПУСК ТОРГОВОГО БОТА');
+  console.log('🤖 ЗАПУСК ТОРГОВОГО БОТА (BINGX API v3 + АЛЬТЕРНАТИВНЫЙ ДОМЕН)');
   setRiskLevel('recommended');
   globalState.tradeMode = 'adaptive';
   await forceUpdateRealBalance();
@@ -1036,14 +1053,14 @@ app.listen(PORT, '0.0.0.0', () => {
 
         if (candles.length < 50) {
           console.log(`   ⚠️ Пропускаем ${coin.name} — недостаточно данных`);
-          await new Promise(r => setTimeout(r, 1200));
+          await new Promise(r => setTimeout(r, 2000)); // ✅ 2 сек между анализами
           continue;
         }
 
         const analysis = analyzeMarketWithAdaptiveStrategy(candles, coin.name, fearIndex, globalState.marketMemory.fundamentalData[coin.name]);
 
         if (!analysis || !analysis.signal.direction) {
-          await new Promise(r => setTimeout(r, 1200));
+          await new Promise(r => setTimeout(r, 2000));
           continue;
         }
 
@@ -1055,7 +1072,7 @@ app.listen(PORT, '0.0.0.0', () => {
           bestReasoning = analysis.signal.reasoning;
         }
 
-        await new Promise(r => setTimeout(r, 1200));
+        await new Promise(r => setTimeout(r, 2000));
       }
 
       if (bestOpportunity && (globalState.isRealMode || globalState.balance > 10)) {
@@ -1113,7 +1130,7 @@ app.listen(PORT, '0.0.0.0', () => {
   }
 })();
 
-// ✅ ЭКСПОРТ ФУНКЦИЙ — ПЕРЕМЕЩЕНО В КОНЕЦ, ПОСЛЕ ВСЕХ ОБЪЯВЛЕНИЙ
+// ✅ ЭКСПОРТ ФУНКЦИЙ — ПЕРЕМЕЩЕНО В КОНЕЦ
 module.exports = {
   globalState,
   deposit,
@@ -1137,7 +1154,7 @@ global.balance = () => globalState.balance;
 global.stats = () => globalState.stats;
 global.history = () => globalState.history;
 
-console.log('✅ Торговый Бот запущен!');
+console.log('✅ Торговый Бот (BingX API v3) запущен!');
 console.log('❗ ВАЖНО: Для торговли на реальном счете переведите USDT на фьючерсный счет в интерфейсе BingX.');
 console.log('⚙️ Используйте toggleMode() для переключения режима.');
 console.log('⚠️ Риск потери средств 100%.');
