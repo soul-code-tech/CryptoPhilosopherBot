@@ -357,7 +357,7 @@ async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null
 async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss, takeProfit) {
   const symbol = coin.toUpperCase();
   console.log(`🌐 Отправка ${direction} ордера на BingX Futures: ${size} ${symbol}-USDT с плечом ${leverage}x`);
-  console.log(`🔄 Текущий режим: ${globalState.isRealMode ? 'РЕАЛЬНЫЙ'}`);
+  console.log(`🔄 Текущий режим: ${globalState.isRealMode ? 'РЕАЛЬНЫЙ': 'ДЕМО'}`);
   console.log(`⚡ Торговый режим: ${globalState.tradeMode}`);
   console.log(`💣 Уровень риска: ${globalState.riskLevel}`);
   
