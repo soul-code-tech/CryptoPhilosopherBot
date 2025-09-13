@@ -169,10 +169,10 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
   try {
     // ✅ ВАЖНО: Symbol должен быть именно BTCUSDT, ETHUSDT и т.д.
     const baseSymbol = symbol.toUpperCase().trim();
-    const fullSymbol = `${baseSymbol}USDT`;
+    const fullSymbol = `${baseSymbol}-USDT`;
 
     const params = {
-      symbol: fullSymbol, // ✅ ТОЧНО: BTCUSDT, ETHUSDT
+      symbol: fullSymbol, // ✅ ТОЧНО: BTC-USDT, ETH-USDT
       interval,
       limit,
       timestamp: Date.now()
@@ -225,7 +225,7 @@ async function getCurrentPrices() {
     const symbols = globalState.watchlist.map(coin => `${coin.symbol}USDT`).join(',');
     
     const params = {
-      symbols, // → "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT"
+      symbols, // → "BTC-USDT,ETH-USDT,SOL-USDT,XRP-USDT"
       timestamp: Date.now()
     };
     const signature = signBingXRequest(params);
@@ -272,7 +272,7 @@ async function setBingXLeverage(symbol, leverage) {
     }
     const timestamp = Date.now();
     const params = {
-      symbol: `${symbol.toUpperCase()}USDT`, // ✅ BTCUSDT
+      symbol: `${symbol.toUpperCase()}-USDT`, // ✅ BTCUSDT
       side: 'LONG',
       leverage: leverage.toString(),
       timestamp: timestamp
@@ -316,7 +316,7 @@ async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null
     }
     const timestamp = Date.now();
     const params = {
-      symbol: `${symbol.toUpperCase()}USDT`, // ✅ BTCUSDT
+      symbol: `${symbol.toUpperCase()}-USDT`, // ✅ BTC-USDT
       side: side,
       type: type,
       quantity: quantity.toFixed(6),
@@ -936,101 +936,6 @@ function printStats() {
   console.log(`   Волатильность рынка: ${s.volatilityIndex.toFixed(2)}%`);
   console.log(`   Рыночный sentiment: ${s.marketSentiment.toFixed(0)}%`);
   console.log(`   Текущий баланс: $${globalState.balance.toFixed(2)}`);
-}
-
-// ==========================
-// ФУНКЦИЯ: Получение новостей крипторынка
-// ==========================
-async function getCryptoNews() {
-  try {
-    const response = await axios.get('https://api.coinmarketcap.com/data-api/v3/cryptocurrency/listing?start=1&limit=10&sortBy=market_cap&sortType=desc&convert=USD&cryptoType=all&tagType=all&audited=false', {
-      timeout: 10000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-      }
-    });
-    if (!response.data || !Array.isArray(response.data.data.cryptoCurrencyList)) {
-      throw new Error('Invalid response from CoinMarketCap');
-    }
-    const news = response.data.data.cryptoCurrencyList.slice(0, 5).map(coin => {
-      const change24h = coin.quote.USD.percentChange24h;
-      const trendEmoji = change24h > 0 ? '🐂 Бычий' : '🐻 Медвежий';
-      const trendClass = change24h > 0 ? 'positive' : 'negative';
-      const russianNames = {
-        'Bitcoin': 'Биткоин',
-        'Ethereum': 'Эфириум',
-        'Solana': 'Солана',
-        'Ripple': 'Рипл',
-        'Dogecoin': 'Догекоин',
-        'Cardano': 'Кардано',
-        'Polkadot': 'Полкадот',
-        'Chainlink': 'Чейнлинк',
-        'Avalanche': 'Аваланч',
-        'Cosmos': 'Космос',
-        'Uniswap': 'Юнисвап',
-        'Aave': 'Ааве',
-        'Filecoin': 'Файлкоин',
-        'Litecoin': 'Лайткоин',
-        'Algorand': 'Алгоранд',
-        'Near Protocol': 'Нир Протокол',
-        'Aptos': 'Аптос'
-      };
-      const russianName = russianNames[coin.name] || coin.name;
-      return {
-        title: `${russianName} (${coin.symbol}) — Рыночная капитализация: $${(coin.marketCap || 0).toLocaleString()}`,
-        source: 'CoinMarketCap',
-        sentiment: trendClass,
-        trend: trendEmoji,
-        change24h: change24h.toFixed(2),
-        url: `https://coinmarketcap.com/currencies/${coin.slug}/`
-      };
-    });
-    return news;
-  } catch (error) {
-    console.error('❌ Ошибка получения новостей с CoinMarketCap:', error.message);
-    return [
-      { 
-        title: "Биткоин突破$60K, 机构资金持续流入", 
-        source: "CryptoNews", 
-        sentiment: "positive",
-        trend: "🐂 Бычий",
-        change24h: "+2.5%",
-        url: "#"
-      },
-      { 
-        title: "Эфириум ETF Approval Expected in Q3 2024", 
-        source: "CoinDesk", 
-        sentiment: "positive",
-        trend: "🐂 Бычий",
-        change24h: "+1.8%",
-        url: "#"
-      },
-      { 
-        title: "Рынок корректируется: Альткоины упали на 15% на этой неделе", 
-        source: "Cointelegraph", 
-        sentiment: "negative",
-        trend: "🐻 Медвежий",
-        change24h: "-3.2%",
-        url: "#"
-      },
-      { 
-        title: "Сеть Solana обновлена для увеличения скорости транзакций", 
-        source: "The Block", 
-        sentiment: "positive",
-        trend: "🐂 Бычий",
-        change24h: "+4.1%",
-        url: "#"
-      },
-      { 
-        title: "Регуляторное давление на крупные биржи усиливается", 
-        source: "Bloomberg Crypto", 
-        sentiment: "negative",
-        trend: "🐻 Медвежий",
-        change24h: "-1.7%",
-        url: "#"
-      }
-    ];
-  }
 }
 
 // ==========================
