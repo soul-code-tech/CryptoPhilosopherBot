@@ -9,10 +9,10 @@ const moment = require('moment');
 // ГЛОБАЛЬНОЕ СОСТОЯНИЕ
 // ==========================
 let globalState = {
-  balance: 100,
-  realBalance: null,
-  positions: {},
-  history: [],
+  balance: 100, // Демо-баланс
+  realBalance: null, // Реальный баланс с BingX Futures
+  positions: {}, // Активные позиции
+  history: [], // История ВСЕХ сделок
   stats: {
     totalTrades: 0,
     profitableTrades: 0,
@@ -31,34 +31,55 @@ let globalState = {
     volatilityHistory: {},
     fearSentimentHistory: [],
     marketNews: [],
-    fundamentalData: {}
+    fundamentalData: {} // Фундаментальные данные для монет
   },
   isRunning: true,
-  takerFee: 0.0005,
-  makerFee: 0.0002,
-  maxRiskPerTrade: 0.01,
-  maxLeverage: 3,
+  takerFee: 0.0005, // Комиссия тейкера (0.05%)
+  makerFee: 0.0002, // Комиссия мейкера (0.02%)
+  maxRiskPerTrade: 0.01,  // 1% от депозита по умолчанию
+  maxLeverage: 3,         // 3x плечо
   watchlist: [
     { symbol: 'BTC-USD', name: 'bitcoin' },
     { symbol: 'ETH-USD', name: 'ethereum' },
     { symbol: 'SOL-USD', name: 'solana' },
-    { symbol: 'XRP-USD', name: 'ripple' }
+    { symbol: 'XRP-USD', name: 'ripple' },
+    { symbol: 'ADA-USD', name: 'cardano' },
+    { symbol: 'DOT-USD', name: 'polkadot' },
+    { symbol: 'DOGE-USD', name: 'dogecoin' },
+    { symbol: 'MATIC-USD', name: 'polygon' },
+    { symbol: 'LTC-USD', name: 'litecoin' },
+    { symbol: 'BCH-USD', name: 'bitcoin-cash' },
+    { symbol: 'UNI-USD', name: 'uniswap' },
+    { symbol: 'LINK-USD', name: 'chainlink' },
+    { symbol: 'AAVE-USD', name: 'aave' },
+    { symbol: 'AVAX-USD', name: 'avalanche' },
+    { symbol: 'ATOM-USD', name: 'cosmos' },
+    { symbol: 'FIL-USD', name: 'filecoin' },
+    { symbol: 'ALGO-USD', name: 'algorand' },
+    { symbol: 'NEAR-USD', name: 'near' },
+    { symbol: 'SUSHI-USD', name: 'sushi' },
+    { symbol: 'MKR-USD', name: 'maker' }
   ],
-  isRealMode: false,
-  tradeMode: 'adaptive',
-  riskLevel: 'recommended',
+  isRealMode: false, // false = демо, true = реальный режим
+  tradeMode: 'adaptive', // 'adaptive' (адаптивный режим), 'scalping', 'swing'
+  riskLevel: 'recommended', // 'recommended', 'medium', 'high', 'extreme'
   testMode: false,
   currentPrices: {},
   fearIndex: 50,
-  fundamentalCache: {}
+  bingxCache: {}, // Кэш для данных BingX API
+  fundamentalCache: {} // Кэш для CoinGecko
 };
 
+// Инициализация состояния для всех монет
 globalState.watchlist.forEach(coin => {
   globalState.positions[coin.name] = null;
   globalState.marketMemory.lastTrades[coin.name] = [];
   globalState.marketMemory.consecutiveTrades[coin.name] = 0;
   globalState.marketMemory.volatilityHistory[coin.name] = [];
   globalState.marketMemory.fundamentalData[coin.name] = {
+    hashRate: null,
+    activeAddresses: null,
+    transactions: null,
     developerActivity: null,
     socialSentiment: null
   };
@@ -70,15 +91,16 @@ globalState.watchlist.forEach(coin => {
 const BINGX_API_KEY = process.env.BINGX_API_KEY;
 const BINGX_SECRET_KEY = process.env.BINGX_SECRET_KEY;
 const BINGX_FUTURES_URL = process.env.BINGX_API_DOMAIN || 'https://open-api.bingx.com';
+const APP_PASSWORD = process.env.APP_PASSWORD || 'admin123'; // Пароль для доступа к интерфейсу
 
 // ==========================
-// ФУНКЦИЯ: Подпись запроса (ПАРАМЕТРЫ СОРТИРУЮТСЯ ПО АЛФАВИТУ!)
+// ФУНКЦИЯ: Подпись запроса для BingX (СТРОГО ПО ДОКУМЕНТАЦИИ)
 // ==========================
 function signBingXRequest(params) {
   const cleanParams = { ...params };
   delete cleanParams.signature;
-
-  // ✅ Сортируем ключи по алфавиту
+  delete cleanParams.recvWindow;
+  
   const sortedKeys = Object.keys(cleanParams).sort();
   const sortedParams = sortedKeys.map(key => `${key}=${cleanParams[key]}`).join('&');
   return CryptoJS.HmacSHA256(sortedParams, BINGX_SECRET_KEY).toString(CryptoJS.enc.Hex);
@@ -107,11 +129,43 @@ async function getFearAndGreedIndex() {
 }
 
 // ==========================
+// ФУНКЦИЯ: Получение данных из BingX с кэшированием
+// ==========================
+async function getBingXData(url, params) {
+  const cacheKey = `${url}-${JSON.stringify(params)}`;
+  
+  if (globalState.bingxCache[cacheKey] && Date.now() - globalState.bingxCache[cacheKey].timestamp < 30000) {
+    return globalState.bingxCache[cacheKey].data;
+  }
+  
+  try {
+    const response = await axios.get(url, {
+      params,
+      headers: { 
+        'X-BX-APIKEY': BINGX_API_KEY,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      },
+      timeout: 10000
+    });
+    
+    globalState.bingxCache[cacheKey] = {
+      data: response.data,
+      timestamp: Date.now()
+    };
+    
+    return response.data;
+  } catch (error) {
+    console.error(`❌ Ошибка при получении данных из BingX:`, error.message);
+    return null;
+  }
+}
+
+// ==========================
 // ФУНКЦИЯ: Получение реального баланса с BingX Futures
 // ==========================
 async function getBingXRealBalance() {
   try {
-    console.log('🔍 [БАЛАНС] Запрос реального баланса...');
+    console.log('🔍 [БАЛАНС] Начинаю запрос реального баланса...');
     if (!BINGX_API_KEY || !BINGX_SECRET_KEY) {
       console.error('❌ [БАЛАНС] API-ключи не заданы в переменных окружения');
       return null;
@@ -124,29 +178,24 @@ async function getBingXRealBalance() {
     
     console.log('🌐 [БАЛАНС] Отправляю ПОДПИСАННЫЙ запрос к:', url);
     
-    const response = await axios.get(url, {
-      headers: { 
-        'X-BX-APIKEY': BINGX_API_KEY,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-      },
-      timeout: 10000
-    });
+    const response = await getBingXData(url, {});
+    if (!response) return null;
     
-    console.log('✅ [БАЛАНС] Получен ответ от BingX:', JSON.stringify(response.data, null, 2));
+    console.log('✅ [БАЛАНС] Получен ответ от BingX:', JSON.stringify(response, null, 2));
     
-    if (response.data.code === 0 && response.data.data) {
+    if (response.code === 0 && response.data) {
       let usdtBalance = null;
-      if (response.data.data.balance && response.data.data.balance.asset === 'USDT') {
-        usdtBalance = parseFloat(response.data.data.balance.balance);
+      if (response.data.balance && response.data.balance.asset === 'USDT') {
+        usdtBalance = parseFloat(response.data.balance.balance);
         console.log(`💰 [БАЛАНС] Найден баланс в data.balance: $${usdtBalance.toFixed(2)}`);
-      } else if (response.data.data.assets && Array.isArray(response.data.data.assets)) {
-        const usdtAsset = response.data.data.assets.find(asset => asset.asset === 'USDT');
+      } else if (response.data.assets && Array.isArray(response.data.assets)) {
+        const usdtAsset = response.data.assets.find(asset => asset.asset === 'USDT');
         if (usdtAsset && usdtAsset.walletBalance) {
           usdtBalance = parseFloat(usdtAsset.walletBalance);
           console.log(`💰 [БАЛАНС] Найден баланс в assets: $${usdtBalance.toFixed(2)}`);
         }
-      } else if (Array.isArray(response.data.data)) {
-        const usdtAsset = response.data.data.find(asset => asset.asset === 'USDT');
+      } else if (Array.isArray(response.data)) {
+        const usdtAsset = response.data.find(asset => asset.asset === 'USDT');
         if (usdtAsset && usdtAsset.walletBalance) {
           usdtBalance = parseFloat(usdtAsset.walletBalance);
           console.log(`💰 [БАЛАНС] Найден баланс в массиве: $${usdtBalance.toFixed(2)}`);
@@ -156,7 +205,7 @@ async function getBingXRealBalance() {
       if (usdtBalance !== null) return usdtBalance;
       else console.error('❌ [БАЛАНС] Не найден баланс USDT в ответе');
     } else {
-      console.error('❌ [БАЛАНС] Ошибка в ответе от BingX:', response.data.msg || 'Неизвестная ошибка');
+      console.error('❌ [БАЛАНС] Ошибка в ответе от BingX:', response.msg || 'Неизвестная ошибка');
     }
     
     return null;
@@ -185,18 +234,13 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
     
     console.log(`🌐 Получение истории для ${symbol}: GET ${url}`);
     
-    const response = await axios.get(url, {
-      headers: { 
-        'X-BX-APIKEY': BINGX_API_KEY,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-      },
-      timeout: 10000
-    });
+    const response = await getBingXData(url, params);
+    if (!response) return [];
     
-    console.log('✅ [ИСТОРИЯ] Ответ:', JSON.stringify(response.data, null, 2));
+    console.log('✅ [ИСТОРИЯ] Ответ:', JSON.stringify(response, null, 2));
     
-    if (response.data.code === 0 && Array.isArray(response.data.data)) {
-      const candles = response.data.data.map(candle => ({
+    if (response.code === 0 && Array.isArray(response.data)) {
+      const candles = response.data.map(candle => ({
         time: candle[0],
         open: parseFloat(candle[1]),
         high: parseFloat(candle[2]),
@@ -211,7 +255,7 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
       }));
       return candles;
     } else {
-      console.error(`❌ Ошибка в ответе от BingX для истории ${symbol}:`, response.data.msg || 'Неизвестная ошибка');
+      console.error(`❌ Ошибка в ответе от BingX для истории ${symbol}:`, response.msg || 'Неизвестная ошибка');
       return [];
     }
   } catch (error) {
@@ -241,21 +285,16 @@ async function getCurrentPrices() {
       console.log(`🌐 Получение цены для ${coin.symbol}: GET ${url}`);
       
       try {
-        const response = await axios.get(url, {
-          headers: { 
-            'X-BX-APIKEY': BINGX_API_KEY,
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-          },
-          timeout: 10000
-        });
+        const response = await getBingXData(url, params);
+        if (!response) continue;
         
-        if (response.data.code === 0 && response.data.data) {
-          const price = parseFloat(response.data.data.price);
+        if (response.code === 0 && response.data && response.data.price) {
+          const price = parseFloat(response.data.price);
           const cleanSymbol = coin.symbol.replace('-USD', '').toLowerCase();
           prices[cleanSymbol] = price;
           console.log(`✅ Цена для ${coin.symbol}: $${price}`);
         } else {
-          console.error(`❌ Ошибка для ${coin.symbol}:`, response.data.msg);
+          console.error(`❌ Ошибка для ${coin.symbol}:`, response.msg || 'Нет данных о цене');
         }
       } catch (error) {
         console.error(`❌ Не удалось получить цену для ${coin.symbol}:`, error.message);
@@ -294,6 +333,8 @@ async function setBingXLeverage(symbol, leverage) {
     
     const signature = signBingXRequest(params);
     const url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/trade/leverage?symbol=${params.symbol}&side=LONG&leverage=${params.leverage}&timestamp=${params.timestamp}&recvWindow=5000&signature=${signature}`;
+    
+    console.log(`🌐 Установка плеча для ${symbol}: POST ${url}`);
     
     const response = await axios.post(url, null, {
       headers: { 
@@ -349,12 +390,13 @@ async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null
     }
     
     const signature = signBingXRequest(params);
-    
-    let url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/trade/order?symbol=${params.symbol}&side=${params.side}&type=${params.type}&quantity=${params.quantity}&timestamp=${params.timestamp}&positionSide=${params.positionSide}&recvWindow=5000&signature=${signature}`;
+    const url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/trade/order?symbol=${params.symbol}&side=${params.side}&type=${params.type}&quantity=${params.quantity}&timestamp=${params.timestamp}&positionSide=${params.positionSide}&recvWindow=5000&signature=${signature}`;
     
     if (price && type === 'LIMIT') {
       url += `&price=${price.toFixed(8)}`;
     }
+    
+    console.log(`🌐 Размещение ордера: POST ${url}`);
     
     const response = await axios.post(url, null, {
       headers: { 
@@ -861,14 +903,25 @@ async function getFundamentalData(coin) {
     });
     const data = response.data;
     const fundamentalData = {
-      developerActivity: data.developer_data?.commits_30d || 0,
-      socialSentiment: data.market_data?.sentiment_votes_up_percentage || 50
+      hashRate: null,
+      activeAddresses: null,
+      transactions: null,
+      developerActivity: null,
+      socialSentiment: null
     };
+    if (data.market_data) {
+      fundamentalData.socialSentiment = data.market_data.sentiment_votes_up_percentage || 50;
+    }
+    if (data.developer_data) {
+      fundamentalData.developerActivity = data.developer_data.commits_30d || 0;
+    }
     globalState.fundamentalCache[cacheKey] = {
       fundamentalData,
       timestamp: now
     };
     globalState.marketMemory.fundamentalData[coin.name] = fundamentalData;
+    // Увеличена задержка до 10 секунд для предотвращения 429
+    await new Promise(r => setTimeout(r, 10000));
     return fundamentalData;
   } catch (error) {
     console.error(`❌ Ошибка получения фундаментальных данных для ${coin.name}:`, error.message);
@@ -1018,35 +1071,391 @@ async function testBingXAPI() {
 const app = express();
 const PORT = process.env.PORT || 10000;
 
+// Middleware для аутентификации
+function authenticate(req, res, next) {
+  // Разрешаем доступ к странице входа
+  if (req.path === '/login' || req.path === '/favicon.ico' || req.path === '/login.css') {
+    return next();
+  }
+  
+  // Проверяем наличие токена в cookies
+  if (req.cookies.authToken) {
+    return next();
+  }
+  
+  // Если нет токена, перенаправляем на страницу входа
+  res.redirect('/login');
+}
+
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(authenticate);
 
-app.get('/', (req, res) => {
+app.get('/login', (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html lang="ru">
-    <head><meta charset="UTF-8"><title>Торговый Бот</title></head>
-    <body style="font-family: sans-serif; padding: 20px;">
-      <h1>Торговый Бот</h1>
-      <p>Баланс: <strong>$${globalState.balance.toFixed(2)}</strong></p>
-      <p>Режим: <strong>${globalState.isRealMode ? 'РЕАЛЬНЫЙ' : 'ДЕМО'}</strong></p>
-      <h3>Последние сделки</h3>
-      <pre>${globalState.history.slice(-5).map(h => `${h.timestamp} | ${h.coin} | ${h.type} | ${(h.profitPercent * 100).toFixed(2)}%`).join('\n')}</pre>
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Вход в систему</title>
+      <style>
+        body {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          margin: 0;
+          padding: 20px;
+          background-color: #f5f5f5;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          min-height: 100vh;
+        }
+        .login-form {
+          max-width: 400px;
+          margin: 0 auto;
+          padding: 20px;
+          background: white;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .login-form h2 {
+          text-align: center;
+          margin-bottom: 20px;
+        }
+        .login-form input {
+          width: 100%;
+          padding: 10px;
+          margin-bottom: 15px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+        }
+        .login-form button {
+          width: 100%;
+          padding: 10px;
+          background: #3498db;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        .login-form button:hover {
+          background: #2980b9;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="login-form">
+        <h2>Вход в систему</h2>
+        <form id="loginForm">
+          <input type="password" name="password" placeholder="Пароль" required>
+          <button type="submit">Войти</button>
+        </form>
+      </div>
+      <script>
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+          e.preventDefault();
+          const password = document.querySelector('input[name="password"]').value;
+          fetch('/login', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ password })
+          }).then(response => response.json())
+            .then(data => {
+              if (data.success) {
+                // Сохраняем авторизацию в cookies
+                document.cookie = "authToken=true; path=/; max-age=3600";
+                window.location.href = '/';
+              } else {
+                alert('Неверный пароль');
+              }
+            });
+        });
+      </script>
     </body>
     </html>
   `);
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  console.log(`🌐 API URL: ${BINGX_FUTURES_URL}`);
+app.post('/login', (req, res) => {
+  const { password } = req.body;
+  if (password === APP_PASSWORD) {
+    res.json({ success: true });
+  } else {
+    res.status(401).json({ success: false, message: 'Неверный пароль' });
+  }
+});
+
+app.get('/logout', (req, res) => {
+  res.clearCookie('authToken');
+  res.redirect('/login');
+});
+
+app.get('/', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="ru">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Торговый Бот</title>
+      <style>
+        body {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          margin: 0;
+          padding: 20px;
+          background-color: #f5f5f5;
+          color: #333;
+        }
+        .container {
+          max-width: 1000px;
+          margin: 0 auto;
+        }
+        @media (max-width: 768px) {
+          .container {
+            padding: 10px;
+          }
+          h1 {
+            font-size: 1.5rem;
+          }
+          table {
+            font-size: 0.9rem;
+          }
+        }
+        h1 {
+          color: #2c3e50;
+          margin-bottom: 10px;
+        }
+        h2 {
+          color: #3498db;
+          margin-top: 20px;
+          margin-bottom: 10px;
+        }
+        p {
+          margin: 10px 0;
+        }
+        .stats {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 20px;
+          margin-bottom: 20px;
+        }
+        .stat-card {
+          background: white;
+          padding: 15px;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          flex: 1;
+          min-width: 200px;
+        }
+        .stat-value {
+          font-size: 1.5rem;
+          font-weight: bold;
+          color: #2c3e50;
+        }
+        .stat-label {
+          color: #7f8c8d;
+          font-size: 0.9rem;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-top: 10px;
+        }
+        th, td {
+          padding: 10px;
+          text-align: left;
+          border-bottom: 1px solid #ddd;
+        }
+        th {
+          background-color: #f2f2f2;
+        }
+        .trading-view {
+          background: white;
+          padding: 15px;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          margin-top: 20px;
+        }
+        .trading-view canvas {
+          width: 100%;
+          height: 300px;
+        }
+        .settings {
+          background: white;
+          padding: 15px;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          margin-top: 20px;
+        }
+        .settings h2 {
+          margin-top: 0;
+        }
+        .settings form {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 15px;
+        }
+        @media (max-width: 768px) {
+          .settings form {
+            grid-template-columns: 1fr;
+          }
+        }
+        .settings input, .settings select {
+          padding: 8px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+        }
+        .settings button {
+          padding: 8px 15px;
+          background: #3498db;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        .settings button:hover {
+          background: #2980b9;
+        }
+        .logout-button {
+          background: #e74c3c;
+          margin-top: 15px;
+        }
+        .logout-button:hover {
+          background: #c0392b;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>Торговый Бот</h1>
+        <div class="stats">
+          <div class="stat-card">
+            <div class="stat-value">$${globalState.balance.toFixed(2)}</div>
+            <div class="stat-label">Баланс</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${globalState.stats.totalTrades}</div>
+            <div class="stat-label">Сделок всего</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${globalState.stats.profitableTrades}</div>
+            <div class="stat-label">Прибыльных</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${globalState.stats.losingTrades}</div>
+            <div class="stat-label">Убыточных</div>
+          </div>
+        </div>
+        <h2>Текущий режим: ${globalState.isRealMode ? 'РЕАЛЬНЫЙ' : 'ДЕМО'}</h2>
+        <div class="settings">
+          <h2>Настройки</h2>
+          <form id="settingsForm">
+            <div>
+              <label for="riskLevel">Уровень риска:</label>
+              <select id="riskLevel" name="riskLevel">
+                <option value="recommended" ${globalState.riskLevel === 'recommended' ? 'selected' : ''}>Рекомендуемый</option>
+                <option value="medium" ${globalState.riskLevel === 'medium' ? 'selected' : ''}>Средний</option>
+                <option value="high" ${globalState.riskLevel === 'high' ? 'selected' : ''}>Высокий</option>
+                <option value="extreme" ${globalState.riskLevel === 'extreme' ? 'selected' : ''}>Экстремальный</option>
+              </select>
+            </div>
+            <div>
+              <label for="tradeMode">Торговый режим:</label>
+              <select id="tradeMode" name="tradeMode">
+                <option value="adaptive" ${globalState.tradeMode === 'adaptive' ? 'selected' : ''}>Адаптивный</option>
+                <option value="scalping" ${globalState.tradeMode === 'scalping' ? 'selected' : ''}>Скальпинг</option>
+                <option value="swing" ${globalState.tradeMode === 'swing' ? 'selected' : ''}>Свинг</option>
+              </select>
+            </div>
+            <div>
+              <label for="realMode">Режим:</label>
+              <select id="realMode" name="realMode">
+                <option value="demo" ${!globalState.isRealMode ? 'selected' : ''}>Демо</option>
+                <option value="real" ${globalState.isRealMode ? 'selected' : ''}>Реальный</option>
+              </select>
+            </div>
+            <button type="submit" class="logout-button" onclick="document.cookie='authToken=; path=/; max-age=0'; window.location.href='/logout'">Выйти</button>
+            <button type="submit">Сохранить настройки</button>
+          </form>
+        </div>
+        <h2>Последние сделки</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Время</th>
+              <th>Монета</th>
+              <th>Тип</th>
+              <th>Цена</th>
+              <th>Прибыль</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${globalState.history.slice(-5).map(h => `
+              <tr>
+                <td>${h.timestamp}</td>
+                <td>${h.coin}</td>
+                <td>${h.type}</td>
+                <td>$${h.entryPrice.toFixed(2)}</td>
+                <td style="color: ${h.profitPercent > 0 ? 'green' : 'red'}">${h.profitPercent > 0 ? '+' : ''}${(h.profitPercent * 100).toFixed(2)}%</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      <script>
+        document.getElementById('settingsForm').addEventListener('submit', function(e) {
+          e.preventDefault();
+          const formData = new FormData(this);
+          fetch('/update-settings', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(Object.fromEntries(formData))
+          }).then(response => response.json())
+            .then(data => {
+              if (data.success) {
+                alert('Настройки сохранены!');
+                location.reload();
+              }
+            });
+        });
+      </script>
+    </body>
+    </html>
+  `);
+});
+
+app.post('/update-settings', (req, res) => {
+  const { riskLevel, tradeMode, realMode } = req.body;
+  
+  if (riskLevel) {
+    setRiskLevel(riskLevel);
+  }
+  
+  if (tradeMode) {
+    globalState.tradeMode = tradeMode;
+  }
+  
+  if (realMode) {
+    globalState.isRealMode = (realMode === 'real');
+    if (globalState.isRealMode) {
+      forceUpdateRealBalance();
+    }
+  }
+  
+  res.json({ success: true, message: 'Настройки сохранены' });
 });
 
 // ==========================
 // ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
 // ==========================
 (async () => {
-  console.log('🤖 ЗАПУСК ТОРГОВОГО БОТА (BINGX API USDT-M Perp)');
+  console.log('🤖 ЗАПУСК ТОРГОВОГО БОТА (BINGX API)');
   setRiskLevel('recommended');
   globalState.tradeMode = 'adaptive';
   await forceUpdateRealBalance();
@@ -1064,7 +1473,7 @@ app.listen(PORT, '0.0.0.0', () => {
       const currentPrices = await getCurrentPrices();
       globalState.currentPrices = currentPrices;
 
-      // Получаем фундаментальные данные с задержкой 5000 мс
+      // Получаем фундаментальные данные с задержкой 10000 мс
       for (const coin of globalState.watchlist) {
         await getFundamentalData(coin);
       }
@@ -1157,34 +1566,19 @@ app.listen(PORT, '0.0.0.0', () => {
   }
 })();
 
-// ✅ ЭКСПОРТ ФУНКЦИЙ — В КОНЦЕ
-module.exports = {
-  globalState,
-  deposit,
-  toggleMode,
-  toggleTradeMode,
-  setRiskLevel,
-  forceUpdateRealBalance,
-  testBingXAPI,
-  balance: () => globalState.balance,
-  stats: () => globalState.stats,
-  history: () => globalState.history
-};
+// ==========================
+// ОБРАБОТКА ОШИБОК
+// ==========================
+app.use((err, req, res, next) => {
+  console.error('Ошибка сервера:', err.stack);
+  res.status(500).send('Внутренняя ошибка сервера');
+});
 
-global.deposit = deposit;
-global.toggleMode = toggleMode;
-global.toggleTradeMode = toggleTradeMode;
-global.setRiskLevel = setRiskLevel;
-global.forceUpdateRealBalance = forceUpdateRealBalance;
-global.testBingXAPI = testBingXAPI;
-global.balance = () => globalState.balance;
-global.stats = () => globalState.stats;
-global.history = () => globalState.history;
-
-console.log('✅ Торговый Бот (BingX API USDT-M Perp) запущен!');
-console.log('❗ ВАЖНО: Для торговли на реальном счете:');
-console.log('   1. Создайте API-ключ в панели BingX.');
-console.log('   2. Добавьте IP Render в белый список (если не стоит "без ограничений").');
-console.log('   3. Установите разрешения: Read, Trade, User Data.');
-console.log('⚙️ Используйте toggleMode() для переключения режима.');
-console.log('⚠️ Риск потери средств 100%.');
+// ==========================
+// ЗАПУСК СЕРВЕРА
+// ==========================
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Сервер запущен на порту ${PORT}`);
+  console.log(`🌐 Доступ к интерфейсу: http://localhost:${PORT}`);
+  console.log(`🔐 Пароль для входа: ${APP_PASSWORD}`);
+});
