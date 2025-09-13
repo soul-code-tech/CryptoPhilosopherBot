@@ -42,9 +42,7 @@ let globalState = {
   makerFee: 0.0002,
   maxRiskPerTrade: 0.01,
   maxLeverage: 3,
-  // ==========================
-  // ОБНОВЛЕННЫЙ СПИСОК: ТОЛЬКО АКТУАЛЬНЫЕ МОНЕТЫ НА BINGX
-  // ==========================
+  // Только актуальные монеты на BingX
   watchlist: [
     { symbol: 'BTC-USDT', name: 'bitcoin' },
     { symbol: 'ETH-USDT', name: 'ethereum' },
@@ -88,7 +86,6 @@ let globalState = {
   fundamentalCache: {}
 };
 
-// Инициализируем данные для каждой монеты
 globalState.watchlist.forEach(coin => {
   globalState.positions[coin.name] = null;
   globalState.marketMemory.lastTrades[coin.name] = [];
@@ -932,7 +929,7 @@ const createIndexHtml = () => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Философ Рынка — Торговый Бот v5.0</title>
+    <title>Философ Рынка — Торговый Бот v5.1</title>
     <style>
         :root {
             --primary: #3498db;
@@ -1320,7 +1317,7 @@ const createIndexHtml = () => {
     
     <div class="container">
         <header>
-            <h1>Философ Рынка — Торговый Бот v5.0</h1>
+            <h1>Философ Рынка — Торговый Бот v5.1</h1>
             <p class="subtitle">Система принятия решений на основе фундаментального и технического анализа</p>
         </header>
         
@@ -1510,7 +1507,7 @@ const createIndexHtml = () => {
                     
                     // Открытые позиции
                     const positionsBody = document.getElementById('positionsBody');
-                    if (data.openPositions.length > 0) {
+                    if (data.openPositions && data.openPositions.length > 0) {
                         positionsBody.innerHTML = data.openPositions.map(pos => {
                             const currentPrice = data.currentPrices[pos.coin] || 0;
                             const profitPercent = pos.type === 'LONG' 
@@ -1518,17 +1515,15 @@ const createIndexHtml = () => {
                                 : (pos.entryPrice - currentPrice) / pos.entryPrice;
                             const profitClass = profitPercent > 0 ? 'profit' : 'loss';
                             
-                            return `
-                            <tr>
-                                <td>${pos.coin}</td>
-                                <td>${pos.type}</td>
-                                <td>${pos.size.toFixed(6)}</td>
-                                <td>$${pos.entryPrice.toFixed(4)}</td>
-                                <td>$${currentPrice.toFixed(4)}</td>
-                                <td class="${profitClass}">${(profitPercent * 100).toFixed(2)}%</td>
-                                <td>${pos.riskScore ? pos.riskScore.toFixed(0) : '...'}</td>
-                            </tr>
-                            `;
+                            return '<tr>' +
+                                '<td>' + (pos.coin || '...') + '</td>' +
+                                '<td>' + (pos.type || '...') + '</td>' +
+                                '<td>' + (pos.size ? pos.size.toFixed(6) : '...') + '</td>' +
+                                '<td>$' + (pos.entryPrice ? pos.entryPrice.toFixed(4) : '...') + '</td>' +
+                                '<td>$' + currentPrice.toFixed(4) + '</td>' +
+                                '<td class="' + profitClass + '">' + (profitPercent * 100).toFixed(2) + '%</td>' +
+                                '<td>' + (pos.riskScore ? pos.riskScore.toFixed(0) : '...') + '</td>' +
+                                '</tr>';
                         }).join('');
                     } else {
                         positionsBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #95a5a6;">Нет открытых позиций</td></tr>';
@@ -1536,20 +1531,18 @@ const createIndexHtml = () => {
                     
                     // История сделок
                     const historyBody = document.getElementById('historyBody');
-                    if (data.history.length > 0) {
+                    if (data.history && data.history.length > 0) {
                         historyBody.innerHTML = data.history.slice(-10).map(h => {
                             const profitClass = h.profitPercent > 0 ? 'profit' : 'loss';
-                            return `
-                            <tr>
-                                <td>${h.timestamp}</td>
-                                <td>${h.coin}</td>
-                                <td>${h.type}</td>
-                                <td>$${h.entryPrice ? h.entryPrice.toFixed(4) : '...'}</td>
-                                <td>$${h.exitPrice ? h.exitPrice.toFixed(4) : '...'}</td>
-                                <td class="${profitClass}">${h.profitPercent ? (h.profitPercent > 0 ? '+' : '') + (h.profitPercent * 100).toFixed(2) + '%' : '...'}</td>
-                                <td>${h.riskScore ? h.riskScore.toFixed(0) : '...'}</td>
-                            </tr>
-                            `;
+                            return '<tr>' +
+                                '<td>' + (h.timestamp || '...') + '</td>' +
+                                '<td>' + (h.coin || '...') + '</td>' +
+                                '<td>' + (h.type || '...') + '</td>' +
+                                '<td>$' + (h.entryPrice ? h.entryPrice.toFixed(4) : '...') + '</td>' +
+                                '<td>$' + (h.exitPrice ? h.exitPrice.toFixed(4) : '...') + '</td>' +
+                                '<td class="' + profitClass + '">' + (h.profitPercent ? (h.profitPercent > 0 ? '+' : '') + (h.profitPercent * 100).toFixed(2) + '%' : '...') + '</td>' +
+                                '<td>' + (h.riskScore ? h.riskScore.toFixed(0) : '...') + '</td>' +
+                                '</tr>';
                         }).join('');
                     } else {
                         historyBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #95a5a6;">Нет истории сделок</td></tr>';
@@ -1564,16 +1557,14 @@ const createIndexHtml = () => {
                             const logEntry = document.createElement('div');
                             logEntry.className = 'log-entry';
                             const confidence = (analysis.signal.confidence * 100).toFixed(1);
-                            logEntry.innerHTML = `
-                                <div class="log-time">[${new Date().toLocaleTimeString()}]</div>
-                                <div>
-                                    <span class="log-coin">${analysis.coin}</span>: 
-                                    <span class="log-signal ${analysis.signal.direction === 'LONG' ? 'log-buy' : 'log-sell'}">
-                                        ${analysis.signal.direction}
-                                    </span> 
-                                    <span class="log-confidence">${confidence}%</span>
-                                </div>
-                            `;
+                            logEntry.innerHTML = '<div class="log-time">[' + new Date().toLocaleTimeString() + ']</div>' +
+                                '<div>' +
+                                '<span class="log-coin">' + (analysis.coin || '...') + '</span>: ' +
+                                '<span class="log-signal ' + (analysis.signal.direction === 'LONG' ? 'log-buy' : 'log-sell') + '">' +
+                                (analysis.signal.direction || '...') +
+                                '</span> ' +
+                                '<span class="log-confidence">' + confidence + '%</span>' +
+                                '</div>';
                             analysisLog.insertBefore(logEntry, analysisLog.firstChild);
                         });
                     } else {
@@ -1581,23 +1572,19 @@ const createIndexHtml = () => {
                         if (analysisLog.children.length === 0) {
                             const logEntry = document.createElement('div');
                             logEntry.className = 'log-entry';
-                            logEntry.innerHTML = `
-                                <div class="log-time">[${new Date().toLocaleTimeString()}]</div>
-                                <div><span class="log-coin">Ожидание сигнала</span>: Анализируем рынок...</div>
-                            `;
+                            logEntry.innerHTML = '<div class="log-time">[' + new Date().toLocaleTimeString() + ']</div>' +
+                                '<div><span class="log-coin">Ожидание сигнала</span>: Анализируем рынок...</div>';
                             analysisLog.appendChild(logEntry);
                         }
                     }
                     
                     // Добавляем уведомление о доступности цен
-                    const pricesAvailable = Object.keys(data.currentPrices).length > 0;
+                    const pricesAvailable = data.currentPrices && Object.keys(data.currentPrices).length > 0;
                     if (!pricesAvailable && analysisLog.children.length === 0) {
                         const logEntry = document.createElement('div');
                         logEntry.className = 'log-entry';
-                        logEntry.innerHTML = `
-                            <div class="log-time">[${new Date().toLocaleTimeString()}]</div>
-                            <div><span class="log-coin">⚠️ Внимание</span>: Не удалось получить цены с BingX. Проверьте символы и ключи API.</div>
-                        `;
+                        logEntry.innerHTML = '<div class="log-time">[' + new Date().toLocaleTimeString() + ']</div>' +
+                            '<div><span class="log-coin">⚠️ Внимание</span>: Не удалось получить цены с BingX. Проверьте символы и ключи API.</div>';
                         analysisLog.appendChild(logEntry);
                     }
                     
@@ -1607,10 +1594,8 @@ const createIndexHtml = () => {
                     const analysisLog = document.getElementById('analysisLog');
                     const logEntry = document.createElement('div');
                     logEntry.className = 'log-entry';
-                    logEntry.innerHTML = `
-                        <div class="log-time">[${new Date().toLocaleTimeString()}]</div>
-                        <div><span class="log-coin">❌ Ошибка</span>: Не удалось получить данные от сервера. Проверьте подключение.</div>
-                    `;
+                    logEntry.innerHTML = '<div class="log-time">[' + new Date().toLocaleTimeString() + ']</div>' +
+                        '<div><span class="log-coin">❌ Ошибка</span>: Не удалось получить данные от сервера. Проверьте подключение.</div>';
                     analysisLog.appendChild(logEntry);
                 });
         }
@@ -1711,7 +1696,7 @@ app.get('/login', (req, res) => {
     <body>
       <div class="login-form">
         <div class="logo">Философ Рынка</div>
-        <h2>Торговый Бот v5.0</h2>
+        <h2>Торговый Бот v5.1</h2>
         <form id="loginForm">
           <input type="password" name="password" placeholder="Введите пароль" required>
           <button type="submit">Войти в систему</button>
@@ -1795,7 +1780,7 @@ app.get('/api/status', (req, res) => {
 // ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
 // ==========================
 (async () => {
-  console.log('🤖 ЗАПУСК ТОРГОВОГО БОТА (ПОЛНОСТЬЮ РАБОЧАЯ ВЕРСИЯ v5.0)');
+  console.log('🤖 ЗАПУСК ТОРГОВОГО БОТА (ПОЛНОСТЬЮ РАБОЧАЯ ВЕРСИЯ v5.1)');
   console.log('🔑 API-ключи: ЗАДАНЫ');
   console.log('🔐 Секретный ключ: ЗАДАН');
   console.log('✅ Проверка доступных монет на BingX...');
