@@ -1,13 +1,16 @@
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
 const axios = require('axios');
 const CryptoJS = require('crypto-js');
-const moment = require('moment'); // Для работы с датами
+const moment = require('moment');
 
 // ==========================
 // ГЛОБАЛЬНОЕ СОСТОЯНИЕ
 // ==========================
 let globalState = {
   balance: 100, // Демо-баланс
-  realBalance: null, // Реальный баланс с Binance Futures
+  realBalance: null, // Реальный баланс с BingX Futures
   positions: {}, // Активные позиции
   history: [], // История ВСЕХ сделок
   stats: {
@@ -31,8 +34,8 @@ let globalState = {
     fundamentalData: {} // Фундаментальные данные для монет
   },
   isRunning: true,
-  takerFee: 0.0004, // Комиссия тейкера для Binance (0.04%)
-  makerFee: 0.0002, // Комиссия мейкера для Binance (0.02%)
+  takerFee: 0.0005, // Комиссия тейкера (0.05%)
+  makerFee: 0.0002, // Комиссия мейкера (0.02%)
   maxRiskPerTrade: 0.01,  // 1% от депозита по умолчанию
   maxLeverage: 3,         // 3x плечо
   watchlist: [
@@ -47,9 +50,9 @@ let globalState = {
   testMode: false,
   currentPrices: {},
   fearIndex: 50,
-  binanceApiKey: process.env.BINANCE_API_KEY,
-  binanceSecretKey: process.env.BINANCE_SECRET_KEY,
-  binanceFuturesUrl: 'https://fapi.binance.com'
+  binanceApiKey: process.env.BINGX_API_KEY,
+  binanceSecretKey: process.env.BINGX_SECRET_KEY,
+  bingxFuturesUrl: 'https://open-api.bingx.com'
 };
 
 // Инициализация состояния для всех монет
@@ -68,14 +71,21 @@ globalState.watchlist.forEach(coin => {
 });
 
 // ==========================
-// ФУНКЦИЯ: Подпись запроса для Binance (СТРОГО ПО ДОКУМЕНТАЦИИ)
+// КОНФИГУРАЦИЯ BINGX API
 // ==========================
-function signBinanceRequest(params) {
+const BINGX_API_KEY = process.env.BINGX_API_KEY;
+const BINGX_SECRET_KEY = process.env.BINGX_SECRET_KEY;
+const BINGX_FUTURES_URL = 'https://open-api.bingx.com';
+
+// ==========================
+// ФУНКЦИЯ: Подпись запроса для BingX (СТРОГО ПО ДОКУМЕНТАЦИИ)
+// ==========================
+function signBingXRequest(params) {
   // Сортируем параметры по ключам
   const sortedKeys = Object.keys(params).sort();
   const sortedParams = sortedKeys.map(key => `${key}=${params[key]}`).join('&');
   // Создаем подпись HMAC SHA256
-  return CryptoJS.HmacSHA256(sortedParams, globalState.binanceSecretKey).toString(CryptoJS.enc.Hex);
+  return CryptoJS.HmacSHA256(sortedParams, BINGX_SECRET_KEY).toString(CryptoJS.enc.Hex);
 }
 
 // ==========================
@@ -101,96 +111,71 @@ async function getFearAndGreedIndex() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение фундаментальных данных монеты
+// ФУНКЦИЯ: Получение реального баланса с BingX Futures
 // ==========================
-async function getFundamentalData(coin) {
-  try {
-    // Получаем данные о монете с CoinGecko
-    const response = await axios.get(`https://api.coingecko.com/api/v3/coins/${coin.name}`, {
-      params: {
-        localization: false,
-        tickers: false,
-        market_data: true,
-        community_data: true,
-        developer_data: true,
-        last_updated: true
-      },
-      timeout: 10000
-    });
-
-    const data = response.data;
-    const fundamentalData = {
-      hashRate: null,
-      activeAddresses: null,
-      transactions: null,
-      developerActivity: null,
-      socialSentiment: null
-    };
-
-    // Анализируем данные
-    if (data.market_data) {
-      fundamentalData.socialSentiment = data.market_data.sentiment_votes_up_percentage || 50;
-    }
-    
-    if (data.developer_data) {
-      fundamentalData.developerActivity = data.developer_data.commits_30d || 0;
-    }
-    
-    if (data.community_data) {
-      fundamentalData.socialSentiment = data.community_data.twitter_followers || 0;
-    }
-    
-    // Сохраняем данные
-    globalState.marketMemory.fundamentalData[coin.name] = fundamentalData;
-    return fundamentalData;
-  } catch (error) {
-    console.error(`❌ Ошибка получения фундаментальных данных для ${coin.name}:`, error.message);
-    return null;
-  }
-}
-
-// ==========================
-// ФУНКЦИЯ: Получение реального баланса с Binance Futures
-// ==========================
-async function getBinanceRealBalance() {
+async function getBingXRealBalance() {
   try {
     console.log('🔍 [БАЛАНС] Начинаю запрос реального баланса...');
     
-    if (!globalState.binanceApiKey || !globalState.binanceSecretKey) {
+    if (!BINGX_API_KEY || !BINGX_SECRET_KEY) {
       console.error('❌ [БАЛАНС] API-ключи не заданы в переменных окружения');
       return null;
     }
 
     const timestamp = Date.now();
     const params = { timestamp };
-    const signature = signBinanceRequest(params);
+    const signature = signBingXRequest(params);
     
     // ВАЖНО: Все параметры передаются в query string, а не в body
-    const url = `${globalState.binanceFuturesUrl}/fapi/v2/balance?timestamp=${timestamp}&signature=${signature}`;
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/user/balance?timestamp=${timestamp}&signature=${signature}`;
 
     console.log('🌐 [БАЛАНС] Отправляю ПОДПИСАННЫЙ запрос к:', url);
 
     const response = await axios.get(url, {
       headers: { 
-        'X-MBX-APIKEY': globalState.binanceApiKey,
+        'X-BX-APIKEY': BINGX_API_KEY,
         'Content-Type': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       },
       timeout: 10000
     });
 
-    console.log('✅ [БАЛАНС] Получен ответ от Binance:', JSON.stringify(response.data, null, 2));
+    console.log('✅ [БАЛАНС] Получен ответ от BingX:', JSON.stringify(response.data, null, 2));
 
-    if (Array.isArray(response.data)) {
-      const usdtBalance = response.data.find(asset => asset.asset === 'USDT');
-      if (usdtBalance) {
-        const balance = parseFloat(usdtBalance.walletBalance);
-        console.log(`💰 [БАЛАНС] Найден баланс: $${balance.toFixed(2)}`);
-        return balance;
+    if (response.data.code === 0 && response.data.data) {
+      let usdtBalance = null;
+
+      // ВАРИАНТ 1: BingX вернул {  { balance: { asset: 'USDT', balance: '0.5384' } } }
+      if (response.data.data.balance && response.data.data.balance.asset === 'USDT') {
+        usdtBalance = parseFloat(response.data.data.balance.balance);
+        console.log(`💰 [БАЛАНС] Найден баланс в data.balance: $${usdtBalance.toFixed(2)}`);
       }
+      // ВАРИАНТ 2: BingX вернул {  { assets: [...] } }
+      else if (response.data.data.assets && Array.isArray(response.data.data.assets)) {
+        const usdtAsset = response.data.data.assets.find(asset => asset.asset === 'USDT');
+        if (usdtAsset && usdtAsset.walletBalance) {
+          usdtBalance = parseFloat(usdtAsset.walletBalance);
+          console.log(`💰 [БАЛАНС] Найден баланс в assets: $${usdtBalance.toFixed(2)}`);
+        }
+      }
+      // ВАРИАНТ 3: BingX вернул {  [...] } (массив)
+      else if (Array.isArray(response.data.data)) {
+        const assetsArray = response.data.data;
+        const usdtAsset = assetsArray.find(asset => asset.asset === 'USDT');
+        if (usdtAsset && usdtAsset.walletBalance) {
+          usdtBalance = parseFloat(usdtAsset.walletBalance);
+          console.log(`💰 [БАЛАНС] Найден баланс в массиве  $${usdtBalance.toFixed(2)}`);
+        }
+      }
+
+      if (usdtBalance !== null) {
+        return usdtBalance;
+      } else {
+        console.error('❌ [БАЛАНС] Не найден баланс USDT в ответе');
+      }
+    } else {
+      console.error('❌ [БАЛАНС] Ошибка в ответе от BingX:', response.data.msg || 'Неизвестная ошибка');
     }
-    
-    console.error('❌ [БАЛАНС] Не найден баланс USDT в ответе');
     return null;
   } catch (error) {
     console.error('❌ [БАЛАНС] КРИТИЧЕСКАЯ ОШИБКА получения реального баланса:', error.message);
@@ -199,9 +184,9 @@ async function getBinanceRealBalance() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение исторических свечей с Binance Futures
+// ФУНКЦИЯ: Получение исторических свечей с BingX Futures
 // ==========================
-async function getBinanceFuturesHistory(symbol, interval = '1h', limit = 100) {
+async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
   try {
     const params = {
       symbol: `${symbol}USDT`,
@@ -210,21 +195,21 @@ async function getBinanceFuturesHistory(symbol, interval = '1h', limit = 100) {
       timestamp: Date.now()
     };
     
-    const signature = signBinanceRequest(params);
-    const url = `${globalState.binanceFuturesUrl}/fapi/v1/klines?symbol=${params.symbol}&interval=${params.interval}&limit=${params.limit}&timestamp=${params.timestamp}&signature=${signature}`;
+    const signature = signBingXRequest(params);
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/quote/klines?symbol=${params.symbol}&interval=${params.interval}&limit=${params.limit}&timestamp=${params.timestamp}&signature=${signature}`;
     
     console.log(`🌐 Получение истории для ${symbol}: ${url}`);
     
     const response = await axios.get(url, {
       headers: { 
-        'X-MBX-APIKEY': globalState.binanceApiKey,
+        'X-BX-APIKEY': BINGX_API_KEY,
         'Content-Type': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       },
       timeout: 10000
     });
 
-    const candles = response.data.map(candle => ({
+    const candles = response.data.data.map(candle => ({
       time: candle[0],
       open: parseFloat(candle[1]),
       high: parseFloat(candle[2]),
@@ -246,19 +231,30 @@ async function getBinanceFuturesHistory(symbol, interval = '1h', limit = 100) {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение текущих цен с Binance
+// ФУНКЦИЯ: Получение текущих цен с BingX
 // ==========================
 async function getCurrentPrices() {
   try {
-    const symbols = globalState.watchlist.map(coin => `${coin.symbol}USDT`).join(',');
-    const url = `https://api.binance.com/api/v3/ticker/price?symbols=[${symbols}]`;
+    const symbols = globalState.watchlist.map(coin => coin.symbol).join(',');
+    const params = {
+      symbols,
+      timestamp: Date.now()
+    };
+    
+    const signature = signBingXRequest(params);
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/quote/ticker/price?symbols=${symbols}&timestamp=${params.timestamp}&signature=${signature}`;
     
     const response = await axios.get(url, {
+      headers: { 
+        'X-BX-APIKEY': BINGX_API_KEY,
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      },
       timeout: 10000
     });
     
     const prices = {};
-    response.data.forEach(item => {
+    response.data.data.forEach(item => {
       const symbol = item.symbol.replace('USDT', '').toLowerCase();
       prices[symbol] = parseFloat(item.price);
     });
@@ -274,32 +270,34 @@ async function getCurrentPrices() {
 // ==========================
 // ФУНКЦИЯ: Установка плеча для фьючерсов
 // ==========================
-async function setBinanceLeverage(symbol, leverage) {
+async function setBingXLeverage(symbol, leverage) {
   try {
-    if (!globalState.binanceApiKey || !globalState.binanceSecretKey) {
+    if (!BINGX_API_KEY || !BINGX_SECRET_KEY) {
       console.log(`ℹ️ [ПЛЕЧО] API-ключи не заданы. Плечо ${leverage}x для ${symbol} установлено виртуально.`);
       return true;
     }
 
+    const timestamp = Date.now();
     const params = {
       symbol: `${symbol}USDT`,
-      leverage: leverage,
-      timestamp: Date.now()
+      side: 'LONG',
+      leverage: leverage.toString(),
+      timestamp: timestamp
     };
     
-    const signature = signBinanceRequest(params);
-    const url = `${globalState.binanceFuturesUrl}/fapi/v1/leverage?symbol=${params.symbol}&leverage=${params.leverage}&timestamp=${params.timestamp}&signature=${signature}`;
+    const signature = signBingXRequest(params);
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/trade/leverage?symbol=${params.symbol}&side=LONG&leverage=${params.leverage}&timestamp=${params.timestamp}&signature=${signature}`;
 
     const response = await axios.post(url, null, {
       headers: { 
-        'X-MBX-APIKEY': globalState.binanceApiKey,
+        'X-BX-APIKEY': BINGX_API_KEY,
         'Content-Type': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       },
       timeout: 10000
     });
 
-    if (response.data.leverage) {
+    if (response.data.code === 0) {
       console.log(`✅ Плечо ${leverage}x установлено для ${symbol}`);
       return true;
     } else {
@@ -315,26 +313,27 @@ async function setBinanceLeverage(symbol, leverage) {
 // ==========================
 // ФУНКЦИЯ: Размещение фьючерсного ордера
 // ==========================
-async function placeBinanceFuturesOrder(symbol, side, type, quantity, price = null, leverage) {
+async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null, leverage) {
   try {
-    if (!globalState.binanceApiKey || !globalState.binanceSecretKey) {
+    if (!BINGX_API_KEY || !BINGX_SECRET_KEY) {
       console.log(`ℹ️ [ОРДЕР] API-ключи не заданы. Ордер ${side} ${quantity} ${symbol} симулирован.`);
       return { orderId: `fake_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` };
     }
 
     // Устанавливаем плечо
-    const leverageSet = await setBinanceLeverage(symbol, leverage);
+    const leverageSet = await setBingXLeverage(symbol, leverage);
     if (!leverageSet) {
       console.log(`❌ Не удалось установить плечо ${leverage}x для ${symbol}`);
       return null;
     }
 
+    const timestamp = Date.now();
     const params = {
       symbol: `${symbol}USDT`,
       side: side,
       type: type,
       quantity: quantity.toFixed(6),
-      timestamp: Date.now()
+      timestamp: timestamp
     };
 
     // Для лимитных ордеров добавляем цену
@@ -342,8 +341,8 @@ async function placeBinanceFuturesOrder(symbol, side, type, quantity, price = nu
       params.price = price.toFixed(8);
     }
 
-    const signature = signBinanceRequest(params);
-    const url = `${globalState.binanceFuturesUrl}/fapi/v1/order?symbol=${params.symbol}&side=${params.side}&type=${params.type}&quantity=${params.quantity}&timestamp=${params.timestamp}&signature=${signature}`;
+    const signature = signBingXRequest(params);
+    let url = `${BINGX_FUTURES_URL}/openApi/swap/v2/trade/order?symbol=${params.symbol}&side=${params.side}&type=${params.type}&quantity=${params.quantity}&timestamp=${params.timestamp}&signature=${signature}`;
     
     if (price && type === 'LIMIT') {
       url += `&price=${price.toFixed(8)}`;
@@ -351,16 +350,16 @@ async function placeBinanceFuturesOrder(symbol, side, type, quantity, price = nu
 
     const response = await axios.post(url, null, {
       headers: { 
-        'X-MBX-APIKEY': globalState.binanceApiKey,
+        'X-BX-APIKEY': BINGX_API_KEY,
         'Content-Type': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       },
       timeout: 10000
     });
 
-    if (response.data.symbol) {
+    if (response.data.code === 0) {
       console.log(`✅ УСПЕШНЫЙ ОРДЕР: ${side} ${quantity} ${symbol}`);
-      return response.data;
+      return response.data.data;
     } else {
       console.error(`❌ ОШИБКА ОРДЕРА:`, response.data.msg);
       return null;
@@ -377,13 +376,13 @@ async function placeBinanceFuturesOrder(symbol, side, type, quantity, price = nu
 async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss, takeProfit) {
   const symbol = coin.toUpperCase();
   
-  console.log(`🌐 Отправка ${direction} ордера на Binance Futures: ${size} ${symbol} с плечом ${leverage}x`);
+  console.log(`🌐 Отправка ${direction} ордера на BingX Futures: ${size} ${symbol} с плечом ${leverage}x`);
   console.log(`🔄 Текущий режим: ${globalState.isRealMode ? 'РЕАЛЬНЫЙ' : 'ДЕМО'}`);
   console.log(`⚡ Торговый режим: ${globalState.tradeMode}`);
   console.log(`💣 Уровень риска: ${globalState.riskLevel}`);
 
   if (globalState.isRealMode) {
-    const result = await placeBinanceFuturesOrder(symbol, direction === 'LONG' ? 'BUY' : 'SELL', 'MARKET', size, null, leverage);
+    const result = await placeBingXFuturesOrder(symbol, direction === 'LONG' ? 'BUY' : 'SELL', 'MARKET', size, null, leverage);
 
     if (result) {
       const fee = size * price * globalState.takerFee; // Комиссия тейкера
@@ -412,10 +411,10 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
       globalState.marketMemory.consecutiveTrades[coin] = (globalState.marketMemory.consecutiveTrades[coin] || 0) + 1;
       globalState.stats.maxLeverageUsed = Math.max(globalState.stats.maxLeverageUsed, leverage);
 
-      console.log(`✅ УСПЕШНО: ${direction} ${size} ${coin} на Binance Futures`);
+      console.log(`✅ УСПЕШНО: ${direction} ${size} ${coin} на BingX Futures`);
       return true;
     } else {
-      console.log(`❌ Не удалось выполнить ордер на Binance Futures`);
+      console.log(`❌ Не удалось выполнить ордер на BingX Futures`);
       return false;
     }
   } else {
@@ -941,149 +940,60 @@ function setRiskLevel(level) {
 }
 
 // ==========================
-// ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
+// ФУНКЦИЯ: Получение фундаментальных данных монеты
 // ==========================
-(async () => {
-  console.log('🤖 ЗАПУСК БОТА v20.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (АДАПТИВНЫЙ РЕЖИМ)');
-  console.log('📌 deposit(сумма) — пополнить демо-баланс');
-  console.log('🔄 toggleMode() — переключить режим (ДЕМО ↔ РЕАЛЬНЫЙ)');
-  console.log('⚡ toggleTradeMode() — переключить торговый режим (adaptive, scalping, swing)');
-  console.log('💣 setRiskLevel() — установить уровень риска (recommended, medium, high, extreme)');
-  console.log('🧪 testBinanceAPI() — протестировать подключение к Binance (реальная сделка с 30% риском)');
+async function getFundamentalData(coin) {
+  try {
+    // Получаем данные о монете с CoinGecko
+    const response = await axios.get(`https://api.coingecko.com/api/v3/coins/${coin.name}`, {
+      params: {
+        localization: false,
+        tickers: false,
+        market_data: true,
+        community_data: true,
+        developer_data: true,
+        last_updated: true
+      },
+      timeout: 10000
+    });
 
-  // Устанавливаем начальный уровень риска
-  setRiskLevel('recommended');
-  globalState.tradeMode = 'adaptive'; // Адаптивный режим по умолчанию
+    const data = response.data;
+    const fundamentalData = {
+      hashRate: null,
+      activeAddresses: null,
+      transactions: null,
+      developerActivity: null,
+      socialSentiment: null
+    };
 
-  // Принудительно обновляем реальный баланс при старте
-  await forceUpdateRealBalance();
-
-  while (globalState.isRunning) {
-    try {
-      console.log(`\n[${new Date().toLocaleTimeString()}] === АНАЛИЗ ОТ ВАСИ 3000 ===`);
-
-      const fearIndex = await getFearAndGreedIndex();
-      console.log(`😱 Индекс страха и жадности: ${fearIndex}`);
-
-      // Обновляем реальный баланс каждые 5 минут
-      if (Date.now() % 300000 < 10000) {
-        await forceUpdateRealBalance();
-      }
-
-      // Получаем текущие цены
-      const currentPrices = await getCurrentPrices();
-      globalState.currentPrices = currentPrices;
-      
-      // Получаем фундаментальные данные для всех монет
-      for (const coin of globalState.watchlist) {
-        await getFundamentalData(coin);
-      }
-      
-      // Получаем новости каждые 30 минут
-      if (Date.now() % 1800000 < 60000) {
-        globalState.marketMemory.news = await getCryptoNews();
-        console.log('📰 Получены последние новости крипторынка');
-      }
-
-      await checkOpenPositions(currentPrices);
-
-      let bestOpportunity = null;
-      let bestReasoning = [];
-
-      for (const coin of globalState.watchlist) {
-        console.log(`\n🔍 Анализирую ${coin.name}...`);
-
-        const candles = await getBinanceFuturesHistory(coin.symbol, '1h', 100);
-        if (candles.length < 50) {
-          console.log(`   ⚠️ Пропускаем ${coin.name} — недостаточно данных`);
-          await new Promise(r => setTimeout(r, 1200));
-          continue;
-        }
-
-        const analysis = analyzeMarketWithAdaptiveStrategy(candles, coin.name, fearIndex, globalState.marketMemory.fundamentalData[coin.name]);
-        if (!analysis || !analysis.signal.direction) {
-          await new Promise(r => setTimeout(r, 1200));
-          continue;
-        }
-
-        console.log(`   ✅ Сигнал для ${coin.name}: ${analysis.signal.direction}`);
-        analysis.signal.reasoning.forEach(r => console.log(`   • ${r}`));
-
-        if (!bestOpportunity || analysis.signal.confidence > bestOpportunity.signal.confidence) {
-          bestOpportunity = analysis;
-          bestReasoning = analysis.signal.reasoning;
-        }
-
-        await new Promise(r => setTimeout(r, 1200));
-      }
-
-      if (bestOpportunity && (globalState.isRealMode || globalState.balance > 10)) {
-        console.log(`\n💎 ВАСЯ 3000 РЕКОМЕНДУЕТ: ${bestOpportunity.signal.direction} по ${bestOpportunity.coin}`);
-        bestReasoning.forEach(r => console.log(`   • ${r}`));
-
-        const currentBalance = globalState.isRealMode ? (globalState.realBalance || 100) : globalState.balance;
-        const riskAmount = currentBalance * globalState.maxRiskPerTrade;
-        const price = bestOpportunity.currentPrice;
-        const stopDistance = bestOpportunity.signal.direction === 'LONG' 
-          ? price - bestOpportunity.signal.stopLoss 
-          : bestOpportunity.signal.stopLoss - price;
-        
-        // Рассчитываем размер позиции с учетом риска
-        const size = riskAmount / stopDistance;
-        const finalSize = Math.max(0.001, size);
-
-        console.log(`\n🟢 ВХОД: ${bestOpportunity.signal.direction} ${finalSize.toFixed(6)} ${bestOpportunity.coin} с плечом ${bestOpportunity.signal.leverage}x`);
-        await openFuturesTrade(
-          bestOpportunity.coin,
-          bestOpportunity.signal.direction,
-          bestOpportunity.signal.leverage,
-          finalSize,
-          bestOpportunity.currentPrice,
-          bestOpportunity.signal.stopLoss,
-          bestOpportunity.signal.takeProfit
-        );
-      } else {
-        console.log(`\n⚪ Вася 3000 не видит возможностей — отдыхаем...`);
-      }
-
-      // Обновляем статистику (для демо-режима)
-      if (!globalState.isRealMode) {
-        globalState.stats.totalProfit = globalState.balance - 100;
-        if (globalState.balance > globalState.stats.peakBalance) {
-          globalState.stats.peakBalance = globalState.balance;
-        }
-        globalState.stats.maxDrawdown = ((globalState.stats.peakBalance - globalState.balance) / globalState.stats.peakBalance) * 100;
-      }
-
-      globalState.stats.winRate = globalState.stats.totalTrades > 0
-        ? (globalState.stats.profitableTrades / globalState.stats.totalTrades) * 100
-        : 0;
-
-      if (Date.now() % 60000 < 10000) {
-        console.log(`\n💰 ${globalState.isRealMode ? 'Реальный' : 'Демо'}-баланс: $${(globalState.isRealMode ? globalState.realBalance : globalState.balance)?.toFixed(2) || 'Загрузка...'}`);
-        console.log(`📊 Волатильность рынка: ${globalState.stats.volatilityIndex.toFixed(2)}%`);
-        console.log(`🧠 Рыночный sentiment: ${globalState.stats.marketSentiment.toFixed(0)}%`);
-      }
-
-      if (globalState.stats.totalTrades > 0 && globalState.history.length % 2 === 0) {
-        printStats();
-      }
-
-    } catch (error) {
-      console.error('💥 КРИТИЧЕСКАЯ ОШИБКА В ЦИКЛЕ:', error.message);
+    // Анализируем данные
+    if (data.market_data) {
+      fundamentalData.socialSentiment = data.market_data.sentiment_votes_up_percentage || 50;
     }
-
-    console.log(`\n💤 Ждём 60 секунд до следующего анализа...`);
-    await new Promise(r => setTimeout(r, 60000));
+    
+    if (data.developer_data) {
+      fundamentalData.developerActivity = data.developer_data.commits_30d || 0;
+    }
+    
+    if (data.community_data) {
+      fundamentalData.socialSentiment = data.community_data.twitter_followers || 0;
+    }
+    
+    // Сохраняем данные
+    globalState.marketMemory.fundamentalData[coin.name] = fundamentalData;
+    return fundamentalData;
+  } catch (error) {
+    console.error(`❌ Ошибка получения фундаментальных данных для ${coin.name}:`, error.message);
+    return null;
   }
-})();
+}
 
 // ==========================
-// Вспомогательные функции для демо-режима
+// ФУНКЦИЯ: Принудительное обновление реального баланса
 // ==========================
 async function forceUpdateRealBalance() {
   console.log('🔄 [БАЛАНС] Принудительное обновление реального баланса...');
-  const balance = await getBinanceRealBalance();
+  const balance = await getBingXRealBalance();
   if (balance !== null) {
     globalState.realBalance = balance;
     console.log(`✅ [БАЛАНС] Баланс обновлён: $${balance.toFixed(2)}`);
@@ -1091,6 +1001,9 @@ async function forceUpdateRealBalance() {
   return balance;
 }
 
+// ==========================
+// ФУНКЦИЯ: Пополнение баланса (для демо)
+// ==========================
 function deposit(amount) {
   if (amount <= 0) return false;
   globalState.balance += amount;
@@ -1098,6 +1011,9 @@ function deposit(amount) {
   return true;
 }
 
+// ==========================
+// ФУНКЦИЯ: Переключение режима (ДЕМО ↔ РЕАЛЬНЫЙ)
+// ==========================
 function toggleMode() {
   globalState.isRealMode = !globalState.isRealMode;
   console.log(`🔄 Режим переключён на: ${globalState.isRealMode ? 'РЕАЛЬНЫЙ' : 'ДЕМО'}`);
@@ -1109,6 +1025,9 @@ function toggleMode() {
   return globalState.isRealMode;
 }
 
+// ==========================
+// ФУНКЦИЯ: Переключение торгового режима (adaptive, scalping, swing)
+// ==========================
 function toggleTradeMode() {
   const modes = ['adaptive', 'scalping', 'swing'];
   const currentIndex = modes.indexOf(globalState.tradeMode);
@@ -1122,6 +1041,9 @@ function toggleTradeMode() {
   return globalState.tradeMode;
 }
 
+// ==========================
+// ФУНКЦИЯ: Вывод статистики
+// ==========================
 function printStats() {
   const s = globalState.stats;
   console.log(`\n📊 СТАТИСТИКА ТОРГОВЛИ:`);
@@ -1135,6 +1057,9 @@ function printStats() {
   console.log(`   Текущий баланс: $${globalState.balance.toFixed(2)}`);
 }
 
+// ==========================
+// ФУНКЦИЯ: Получение новостей крипторынка (на русском с 🐂/🐻)
+// ==========================
 async function getCryptoNews() {
   try {
     const response = await axios.get('https://api.coinmarketcap.com/data-api/v3/cryptocurrency/listing?start=1&limit=10&sortBy=market_cap&sortType=desc&convert=USD&cryptoType=all&tagType=all&audited=false', {
@@ -1234,19 +1159,19 @@ async function getCryptoNews() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Тестирование API Binance (реальная сделка с 30% риском)
+// ФУНКЦИЯ: Тестирование API BingX (реальная сделка с 30% риском)
 // ==========================
-async function testBinanceAPI() {
+async function testBingXAPI() {
   try {
-    console.log('🧪 [ТЕСТ] Начинаю тестирование API Binance...');
+    console.log('🧪 [ТЕСТ] Начинаю тестирование API BingX...');
     
-    if (!globalState.binanceApiKey || !globalState.binanceSecretKey) {
+    if (!BINGX_API_KEY || !BINGX_SECRET_KEY) {
       console.error('❌ [ТЕСТ] API-ключи не заданы в переменных окружения');
       return { success: false, message: 'API-ключи не заданы' };
     }
 
     // Шаг 1: Получаем баланс
-    const balance = await getBinanceRealBalance();
+    const balance = await getBingXRealBalance();
     if (balance === null) {
       console.error('❌ [ТЕСТ] Не удалось получить баланс');
       return { success: false, message: 'Не удалось получить баланс' };
@@ -1266,7 +1191,7 @@ async function testBinanceAPI() {
     console.log(`🧪 [ТЕСТ] Открываем тестовую позицию LONG с риском 30% от баланса: $${riskAmount.toFixed(2)}`);
 
     // Шаг 4: Открываем реальную позицию
-    const result = await placeBinanceFuturesOrder(
+    const result = await placeBingXFuturesOrder(
       'BTC',
       'BUY',
       'MARKET',
@@ -1302,16 +1227,154 @@ async function testBinanceAPI() {
       globalState.stats.maxLeverageUsed = Math.max(globalState.stats.maxLeverageUsed, 3);
 
       console.log('✅ [ТЕСТ] Тестовая позиция успешно открыта!');
-      return { success: true, message: 'Тестовая позиция успешно открыта! Проверьте ваш фьючерсный счет на Binance.' };
+      return { success: true, message: 'Тестовая позиция успешно открыта! Проверьте ваш фьючерсный счет на BingX.' };
     } else {
-      console.error('❌ [ТЕСТ] Не удалось выполнить ордер на Binance Futures');
-      return { success: false, message: 'Не удалось выполнить ордер на Binance Futures' };
+      console.error('❌ [ТЕСТ] Не удалось выполнить ордер на BingX Futures');
+      return { success: false, message: 'Не удалось выполнить ордер на BingX Futures' };
     }
   } catch (error) {
-    console.error('❌ [ТЕСТ] Ошибка при тестировании API Binance:', error.message);
+    console.error('❌ [ТЕСТ] Ошибка при тестировании API BingX:', error.message);
     return { success: false, message: 'Ошибка при тестировании API: ' + error.message };
   }
 }
+
+// ==========================
+// ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
+// ==========================
+(async () => {
+  console.log('🤖 ЗАПУСК БОТА v20.0 — ТРЕЙДИНГ БОТ ВАСЯ 3000 УНИКАЛЬНЫЙ (BINGX)');
+  console.log('📌 deposit(сумма) — пополнить демо-баланс');
+  console.log('🔄 toggleMode() — переключить режим (ДЕМО ↔ РЕАЛЬНЫЙ)');
+  console.log('⚡ toggleTradeMode() — переключить торговый режим (adaptive, scalping, swing)');
+  console.log('💣 setRiskLevel() — установить уровень риска (recommended, medium, high, extreme)');
+  console.log('🧪 testBingXAPI() — протестировать подключение к BingX (реальная сделка с 30% риском)');
+
+  // Устанавливаем начальный уровень риска
+  setRiskLevel('recommended');
+  globalState.tradeMode = 'adaptive'; // Адаптивный режим по умолчанию
+
+  // Принудительно обновляем реальный баланс при старте
+  await forceUpdateRealBalance();
+
+  while (globalState.isRunning) {
+    try {
+      console.log(`\n[${new Date().toLocaleTimeString()}] === АНАЛИЗ ОТ ВАСИ 3000 ===`);
+
+      const fearIndex = await getFearAndGreedIndex();
+      console.log(`😱 Индекс страха и жадности: ${fearIndex}`);
+
+      // Обновляем реальный баланс каждые 5 минут
+      if (Date.now() % 300000 < 10000) {
+        await forceUpdateRealBalance();
+      }
+
+      // Получаем текущие цены
+      const currentPrices = await getCurrentPrices();
+      globalState.currentPrices = currentPrices;
+      
+      // Получаем фундаментальные данные для всех монет
+      for (const coin of globalState.watchlist) {
+        await getFundamentalData(coin);
+      }
+      
+      // Получаем новости каждые 30 минут
+      if (Date.now() % 1800000 < 60000) {
+        globalState.marketMemory.news = await getCryptoNews();
+        console.log('📰 Получены последние новости крипторынка');
+      }
+
+      await checkOpenPositions(currentPrices);
+
+      let bestOpportunity = null;
+      let bestReasoning = [];
+
+      for (const coin of globalState.watchlist) {
+        console.log(`\n🔍 Анализирую ${coin.name}...`);
+
+        const candles = await getBingXFuturesHistory(coin.symbol, '1h', 100);
+        if (candles.length < 50) {
+          console.log(`   ⚠️ Пропускаем ${coin.name} — недостаточно данных`);
+          await new Promise(r => setTimeout(r, 1200));
+          continue;
+        }
+
+        const analysis = analyzeMarketWithAdaptiveStrategy(candles, coin.name, fearIndex, globalState.marketMemory.fundamentalData[coin.name]);
+        if (!analysis || !analysis.signal.direction) {
+          await new Promise(r => setTimeout(r, 1200));
+          continue;
+        }
+
+        console.log(`   ✅ Сигнал для ${coin.name}: ${analysis.signal.direction}`);
+        analysis.signal.reasoning.forEach(r => console.log(`   • ${r}`));
+
+        if (!bestOpportunity || analysis.signal.confidence > bestOpportunity.signal.confidence) {
+          bestOpportunity = analysis;
+          bestReasoning = analysis.signal.reasoning;
+        }
+
+        await new Promise(r => setTimeout(r, 1200));
+      }
+
+      if (bestOpportunity && (globalState.isRealMode || globalState.balance > 10)) {
+        console.log(`\n💎 ВАСЯ 3000 РЕКОМЕНДУЕТ: ${bestOpportunity.signal.direction} по ${bestOpportunity.coin}`);
+        bestReasoning.forEach(r => console.log(`   • ${r}`));
+
+        const currentBalance = globalState.isRealMode ? (globalState.realBalance || 100) : globalState.balance;
+        const riskAmount = currentBalance * globalState.maxRiskPerTrade;
+        const price = bestOpportunity.currentPrice;
+        const stopDistance = bestOpportunity.signal.direction === 'LONG' 
+          ? price - bestOpportunity.signal.stopLoss 
+          : bestOpportunity.signal.stopLoss - price;
+        
+        // Рассчитываем размер позиции с учетом риска
+        const size = riskAmount / stopDistance;
+        const finalSize = Math.max(0.001, size);
+
+        console.log(`\n🟢 ВХОД: ${bestOpportunity.signal.direction} ${finalSize.toFixed(6)} ${bestOpportunity.coin} с плечом ${bestOpportunity.signal.leverage}x`);
+        await openFuturesTrade(
+          bestOpportunity.coin,
+          bestOpportunity.signal.direction,
+          bestOpportunity.signal.leverage,
+          finalSize,
+          bestOpportunity.currentPrice,
+          bestOpportunity.signal.stopLoss,
+          bestOpportunity.signal.takeProfit
+        );
+      } else {
+        console.log(`\n⚪ Вася 3000 не видит возможностей — отдыхаем...`);
+      }
+
+      // Обновляем статистику (для демо-режима)
+      if (!globalState.isRealMode) {
+        globalState.stats.totalProfit = globalState.balance - 100;
+        if (globalState.balance > globalState.stats.peakBalance) {
+          globalState.stats.peakBalance = globalState.balance;
+        }
+        globalState.stats.maxDrawdown = ((globalState.stats.peakBalance - globalState.balance) / globalState.stats.peakBalance) * 100;
+      }
+
+      globalState.stats.winRate = globalState.stats.totalTrades > 0
+        ? (globalState.stats.profitableTrades / globalState.stats.totalTrades) * 100
+        : 0;
+
+      if (Date.now() % 60000 < 10000) {
+        console.log(`\n💰 ${globalState.isRealMode ? 'Реальный' : 'Демо'}-баланс: $${(globalState.isRealMode ? globalState.realBalance : globalState.balance)?.toFixed(2) || 'Загрузка...'}`);
+        console.log(`📊 Волатильность рынка: ${globalState.stats.volatilityIndex.toFixed(2)}%`);
+        console.log(`🧠 Рыночный sentiment: ${globalState.stats.marketSentiment.toFixed(0)}%`);
+      }
+
+      if (globalState.stats.totalTrades > 0 && globalState.history.length % 2 === 0) {
+        printStats();
+      }
+
+    } catch (error) {
+      console.error('💥 КРИТИЧЕСКАЯ ОШИБКА В ЦИКЛЕ:', error.message);
+    }
+
+    console.log(`\n💤 Ждём 60 секунд до следующего анализа...`);
+    await new Promise(r => setTimeout(r, 60000));
+  }
+})();
 
 // ✅ ЭКСПОРТ ФУНКЦИЙ
 module.exports = {
@@ -1321,7 +1384,7 @@ module.exports = {
   toggleTradeMode,
   setRiskLevel,
   forceUpdateRealBalance,
-  testBinanceAPI,
+  testBingXAPI,
   balance: () => globalState.balance,
   stats: () => globalState.stats,
   history: () => globalState.history
@@ -1332,15 +1395,15 @@ global.toggleMode = toggleMode;
 global.toggleTradeMode = toggleTradeMode;
 global.setRiskLevel = setRiskLevel;
 global.forceUpdateRealBalance = forceUpdateRealBalance;
-global.testBinanceAPI = testBinanceAPI;
+global.testBingXAPI = testBingXAPI;
 global.balance = () => globalState.balance;
 global.stats = () => globalState.stats;
 global.history = () => globalState.history;
 
 console.log('\n✅ Трейдинг Бот Вася 3000 Уникальный запущен!');
-console.log('❗ ВАЖНО: Для торговли на реальном счете переведите USDT на фьючерсный счет в интерфейсе Binance.');
+console.log('❗ ВАЖНО: Для торговли на реальном счете переведите USDT на фьючерсный счет в интерфейсе BingX.');
 console.log('Используй toggleMode() для переключения между ДЕМО и РЕАЛЬНЫМ режимом.');
 console.log('Используй toggleTradeMode() для переключения между адаптивным, скальпинг и свинг режимами.');
 console.log('Используй setRiskLevel(level) для установки уровня риска: recommended, medium, high, extreme.');
-console.log('Используй testBinanceAPI() для тестирования подключения к Binance (реальная сделка с 30% риском).');
+console.log('Используй testBingXAPI() для тестирования подключения к BingX (реальная сделка с 30% риском).');
 console.log('⚠️ ВАЖНО: Никакой алгоритмический трейдинг-бот не гарантирует прибыль. Риск потери всех средств 100%.');
