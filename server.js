@@ -2,11 +2,35 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const axios = require('axios');
+const crypto = require('crypto');
 
 const bot = require('./index.js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ==========================
+// АУТЕНТИФИКАЦИЯ
+// ==========================
+const PASSWORD = process.env.SERVER_PASSWORD || 'mysecret'; // Лучше использовать переменную окружения
+
+// Middleware для проверки пароля
+function authenticate(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const token = authHeader.split(' ')[1];
+  if (token === PASSWORD) {
+    next();
+  } else {
+    res.status(401).json({ error: 'Unauthorized' });
+  }
+}
+
+// Применить middleware ко всем эндпоинтам
+app.use(authenticate);
 
 app.use(cors());
 app.use(express.json());
@@ -63,7 +87,7 @@ app.post('/api/toggleMode', (req, res) => {
   }
 });
 
-// API: Переключение торгового режима (stable ↔ scalping)
+// API: Переключение торгового режима (adaptive, scalping, swing)
 app.post('/api/toggleTradeMode', (req, res) => {
   try {
     const newMode = bot.toggleTradeMode();
@@ -141,4 +165,12 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
   console.log('Твой фьючерсный трейдинг бот работает с переключением режимов!');
+  console.log('🔐 Для доступа к API используйте заголовок: Authorization: Bearer <ваш_пароль>');
+  console.log('⚠️ ВАЖНО: Не храните пароль в коде. Используйте переменную окружения SERVER_PASSWORD');
+});
+
+// Добавляем обработку ошибок для всего сервера
+app.use((err, req, res, next) => {
+  console.error('❌ Ошибка сервера:', err.stack);
+  res.status(500).json({ error: 'Внутренняя ошибка сервера' });
 });
