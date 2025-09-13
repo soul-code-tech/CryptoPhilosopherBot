@@ -53,7 +53,7 @@ let globalState = {
   binanceApiKey: process.env.BINGX_API_KEY,
   binanceSecretKey: process.env.BINGX_SECRET_KEY,
   bingxFuturesUrl: 'https://open-api.bingx.com',
-  fundamentalCache: {} // 🔥 КЭШ для CoinGecko — добавлено!
+  fundamentalCache: {} // 🔥 Кэш для CoinGecko
 };
 
 // Инициализация состояния для всех монет
@@ -167,8 +167,14 @@ async function getBingXRealBalance() {
 // ==========================
 async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
   try {
+    // 🚫 НЕ ДОБАВЛЯЕМ USDT — BingX сам добавит!
+    const baseSymbol = symbol.toUpperCase().trim();
+    if (!baseSymbol.match(/^[A-Z]+$/)) {
+      throw new Error(`Некорректный символ: ${symbol}`);
+    }
+
     const params = {
-      symbol: `${symbol}USDT`,
+      symbol: baseSymbol, // ✅ Только BTC, ETH, SOL — БЕЗ USDT!
       interval,
       limit,
       timestamp: Date.now()
@@ -176,6 +182,7 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
     const signature = signBingXRequest(params);
     const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/quote/klines?symbol=${params.symbol}&interval=${params.interval}&limit=${params.limit}&timestamp=${params.timestamp}&signature=${signature}`;
     console.log(`🌐 Получение истории для ${symbol}: GET ${url}`);
+
     const response = await axios.get(url, {
       headers: { 
         'X-BX-APIKEY': BINGX_API_KEY,
@@ -183,8 +190,9 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
       },
       timeout: 10000
     });
+
     console.log('✅ [ИСТОРИЯ] Ответ:', JSON.stringify(response.data, null, 2));
-    
+
     if (response.data.code === 0 && Array.isArray(response.data.data)) {
       const candles = response.data.data.map(candle => ({
         time: candle[0],
@@ -217,12 +225,13 @@ async function getCurrentPrices() {
   try {
     const symbols = globalState.watchlist.map(coin => coin.symbol).join(',');
     const params = {
-      symbols,
+      symbols, // ✅ Только BTC,ETH,SOL,XRP — БЕЗ USDT!
       timestamp: Date.now()
     };
     const signature = signBingXRequest(params);
     const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/quote/ticker/price?symbols=${symbols}&timestamp=${params.timestamp}&signature=${signature}`;
     console.log(`🌐 Получение текущих цен: GET ${url}`);
+
     const response = await axios.get(url, {
       headers: { 
         'X-BX-APIKEY': BINGX_API_KEY,
@@ -230,13 +239,15 @@ async function getCurrentPrices() {
       },
       timeout: 10000
     });
+
     console.log('✅ [ЦЕНЫ] Ответ:', JSON.stringify(response.data, null, 2));
 
     if (response.data.code === 0 && Array.isArray(response.data.data)) {
       const prices = {};
       response.data.data.forEach(item => {
-        const symbol = item.symbol.replace('USDT', '').toLowerCase();
-        prices[symbol] = parseFloat(item.price);
+        // Убираем USDT из символа
+        const cleanSymbol = item.symbol.replace('USDT', '').toLowerCase();
+        prices[cleanSymbol] = parseFloat(item.price);
       });
       globalState.currentPrices = prices;
       return prices;
@@ -261,7 +272,7 @@ async function setBingXLeverage(symbol, leverage) {
     }
     const timestamp = Date.now();
     const params = {
-      symbol: `${symbol}USDT`,
+      symbol: symbol.toUpperCase(), // ✅ Только BTC — БЕЗ USDT!
       side: 'LONG',
       leverage: leverage.toString(),
       timestamp: timestamp
@@ -305,7 +316,7 @@ async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null
     }
     const timestamp = Date.now();
     const params = {
-      symbol: `${symbol}USDT`,
+      symbol: symbol.toUpperCase(), // ✅ Только BTC — БЕЗ USDT!
       side: side,
       type: type,
       quantity: quantity.toFixed(6),
@@ -843,7 +854,7 @@ async function getFundamentalData(coin) {
     if (data.developer_data) {
       fundamentalData.developerActivity = data.developer_data.commits_30d || 0;
     }
-    // ❌ УБРАНО: НЕ ПЕРЕЗАПИСЫВАЕМ socialSentiment через twitter_followers!
+    // ❌ УБРАНО: НЕ ПЕРЕЗАПИСЫВАЕМ через twitter_followers!
 
     globalState.fundamentalCache[cacheKey] = {
       fundamentalData,
@@ -1095,7 +1106,7 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 app.use(cors());
-app.use(express.static(path.join(__dirname, 'public'))); // если есть папка public с HTML
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
   res.send(`
@@ -1149,10 +1160,10 @@ app.listen(PORT, '0.0.0.0', () => {
       const currentPrices = await getCurrentPrices();
       globalState.currentPrices = currentPrices;
 
-      // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: ЗАДЕРЖКА МЕЖДУ ЗАПРОСАМИ К COINGECKO
+      // 🔥 ЗАДЕРЖКА 1.5 СЕК МЕЖДУ ЗАПРОСАМИ К COINGECKO — ПРЕДОТВРАЩАЕТ 429
       for (const coin of globalState.watchlist) {
         await getFundamentalData(coin);
-        await new Promise(r => setTimeout(r, 1500)); // Ждём 1.5 сек — предотвращает 429
+        await new Promise(r => setTimeout(r, 1500)); // Ждём 1.5 сек
       }
 
       if (Date.now() % 1800000 < 60000) {
