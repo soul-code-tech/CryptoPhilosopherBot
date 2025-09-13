@@ -53,7 +53,7 @@ let globalState = {
   binanceApiKey: process.env.BINGX_API_KEY,
   binanceSecretKey: process.env.BINGX_SECRET_KEY,
   bingxFuturesUrl: 'https://open-api.bingx.com',
-  fundamentalCache: {} // 🔥 Кэш для CoinGecko
+  fundamentalCache: {} // 🔥 КЭШ для CoinGecko — добавлено!
 };
 
 // Инициализация состояния для всех монет
@@ -167,14 +167,12 @@ async function getBingXRealBalance() {
 // ==========================
 async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
   try {
-    // 🚫 НЕ ДОБАВЛЯЕМ USDT — BingX сам добавит!
+    // ✅ ВАЖНО: Symbol должен быть именно BTCUSDT, ETHUSDT и т.д.
     const baseSymbol = symbol.toUpperCase().trim();
-    if (!baseSymbol.match(/^[A-Z]+$/)) {
-      throw new Error(`Некорректный символ: ${symbol}`);
-    }
+    const fullSymbol = `${baseSymbol}USDT`;
 
     const params = {
-      symbol: baseSymbol, // ✅ Только BTC, ETH, SOL — БЕЗ USDT!
+      symbol: fullSymbol, // ✅ ТОЧНО: BTCUSDT, ETHUSDT
       interval,
       limit,
       timestamp: Date.now()
@@ -223,9 +221,11 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
 // ==========================
 async function getCurrentPrices() {
   try {
-    const symbols = globalState.watchlist.map(coin => coin.symbol).join(',');
+    // ✅ ВАЖНО: Символы должны быть с USDT
+    const symbols = globalState.watchlist.map(coin => `${coin.symbol}USDT`).join(',');
+    
     const params = {
-      symbols, // ✅ Только BTC,ETH,SOL,XRP — БЕЗ USDT!
+      symbols, // → "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT"
       timestamp: Date.now()
     };
     const signature = signBingXRequest(params);
@@ -245,7 +245,7 @@ async function getCurrentPrices() {
     if (response.data.code === 0 && Array.isArray(response.data.data)) {
       const prices = {};
       response.data.data.forEach(item => {
-        // Убираем USDT из символа
+        // Убираем USDT из ответа, чтобы получить "btc", "eth" и т.д.
         const cleanSymbol = item.symbol.replace('USDT', '').toLowerCase();
         prices[cleanSymbol] = parseFloat(item.price);
       });
@@ -272,7 +272,7 @@ async function setBingXLeverage(symbol, leverage) {
     }
     const timestamp = Date.now();
     const params = {
-      symbol: symbol.toUpperCase(), // ✅ Только BTC — БЕЗ USDT!
+      symbol: `${symbol.toUpperCase()}USDT`, // ✅ BTCUSDT
       side: 'LONG',
       leverage: leverage.toString(),
       timestamp: timestamp
@@ -316,7 +316,7 @@ async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null
     }
     const timestamp = Date.now();
     const params = {
-      symbol: symbol.toUpperCase(), // ✅ Только BTC — БЕЗ USDT!
+      symbol: `${symbol.toUpperCase()}USDT`, // ✅ BTCUSDT
       side: side,
       type: type,
       quantity: quantity.toFixed(6),
@@ -1160,10 +1160,10 @@ app.listen(PORT, '0.0.0.0', () => {
       const currentPrices = await getCurrentPrices();
       globalState.currentPrices = currentPrices;
 
-      // 🔥 ЗАДЕРЖКА 1.5 СЕК МЕЖДУ ЗАПРОСАМИ К COINGECKO — ПРЕДОТВРАЩАЕТ 429
+      // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: ЗАДЕРЖКА МЕЖДУ ЗАПРОСАМИ К COINGECKO — ПРЕДОТВРАЩАЕТ 429
       for (const coin of globalState.watchlist) {
         await getFundamentalData(coin);
-        await new Promise(r => setTimeout(r, 1500)); // Ждём 1.5 сек
+        await new Promise(r => setTimeout(r, 1500)); // Ждём 1.5 секунды между запросами
       }
 
       if (Date.now() % 1800000 < 60000) {
