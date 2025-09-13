@@ -52,7 +52,8 @@ let globalState = {
   fearIndex: 50,
   binanceApiKey: process.env.BINGX_API_KEY,
   binanceSecretKey: process.env.BINGX_SECRET_KEY,
-  bingxFuturesUrl: 'https://open-api.bingx.com'
+  bingxFuturesUrl: 'https://open-api.bingx.com',
+  fundamentalCache: {} // 🔥 КЭШ для CoinGecko — добавлено!
 };
 
 // Инициализация состояния для всех монет
@@ -81,10 +82,8 @@ const BINGX_FUTURES_URL = 'https://open-api.bingx.com';
 // ФУНКЦИЯ: Подпись запроса для BingX (СТРОГО ПО ДОКУМЕНТАЦИИ)
 // ==========================
 function signBingXRequest(params) {
-  // Сортируем параметры по ключам
   const sortedKeys = Object.keys(params).sort();
   const sortedParams = sortedKeys.map(key => `${key}=${params[key]}`).join('&');
-  // Создаем подпись HMAC SHA256
   return CryptoJS.HmacSHA256(sortedParams, BINGX_SECRET_KEY).toString(CryptoJS.enc.Hex);
 }
 
@@ -104,7 +103,7 @@ async function getFearAndGreedIndex() {
     return value;
   } catch (e) {
     console.log('⚠️ Не удалось получить индекс страха — используем 50');
-    globalState.fearIndex = Math.floor(20 + Math.random() * 60); // Случайное значение от 20 до 80
+    globalState.fearIndex = Math.floor(20 + Math.random() * 60);
     globalState.stats.marketSentiment = globalState.fearIndex;
     return globalState.fearIndex;
   }
@@ -123,13 +122,11 @@ async function getBingXRealBalance() {
     const timestamp = Date.now();
     const params = { timestamp };
     const signature = signBingXRequest(params);
-    // ВАЖНО: Все параметры передаются в query string, а не в body
     const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/user/balance?timestamp=${timestamp}&signature=${signature}`;
     console.log('🌐 [БАЛАНС] Отправляю ПОДПИСАННЫЙ запрос к:', url);
     const response = await axios.get(url, {
       headers: { 
         'X-BX-APIKEY': BINGX_API_KEY,
-        'Content-Type': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       },
       timeout: 10000
@@ -137,33 +134,24 @@ async function getBingXRealBalance() {
     console.log('✅ [БАЛАНС] Получен ответ от BingX:', JSON.stringify(response.data, null, 2));
     if (response.data.code === 0 && response.data.data) {
       let usdtBalance = null;
-      // ВАРИАНТ 1: BingX вернул {  { balance: { asset: 'USDT', balance: '0.5384' } } }
       if (response.data.data.balance && response.data.data.balance.asset === 'USDT') {
         usdtBalance = parseFloat(response.data.data.balance.balance);
         console.log(`💰 [БАЛАНС] Найден баланс в data.balance: $${usdtBalance.toFixed(2)}`);
-      }
-      // ВАРИАНТ 2: BingX вернул {  { assets: [...] } }
-      else if (response.data.data.assets && Array.isArray(response.data.data.assets)) {
+      } else if (response.data.data.assets && Array.isArray(response.data.data.assets)) {
         const usdtAsset = response.data.data.assets.find(asset => asset.asset === 'USDT');
         if (usdtAsset && usdtAsset.walletBalance) {
           usdtBalance = parseFloat(usdtAsset.walletBalance);
           console.log(`💰 [БАЛАНС] Найден баланс в assets: $${usdtBalance.toFixed(2)}`);
         }
-      }
-      // ВАРИАНТ 3: BingX вернул {  [...] } (массив)
-      else if (Array.isArray(response.data.data)) {
-        const assetsArray = response.data.data;
-        const usdtAsset = assetsArray.find(asset => asset.asset === 'USDT');
+      } else if (Array.isArray(response.data.data)) {
+        const usdtAsset = response.data.data.find(asset => asset.asset === 'USDT');
         if (usdtAsset && usdtAsset.walletBalance) {
           usdtBalance = parseFloat(usdtAsset.walletBalance);
-          console.log(`💰 [БАЛАНС] Найден баланс в массиве  $${usdtBalance.toFixed(2)}`);
+          console.log(`💰 [БАЛАНС] Найден баланс в массиве: $${usdtBalance.toFixed(2)}`);
         }
       }
-      if (usdtBalance !== null) {
-        return usdtBalance;
-      } else {
-        console.error('❌ [БАЛАНС] Не найден баланс USDT в ответе');
-      }
+      if (usdtBalance !== null) return usdtBalance;
+      else console.error('❌ [БАЛАНС] Не найден баланс USDT в ответе');
     } else {
       console.error('❌ [БАЛАНС] Ошибка в ответе от BingX:', response.data.msg || 'Неизвестная ошибка');
     }
@@ -175,30 +163,28 @@ async function getBingXRealBalance() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение исторических свечей с BingX Futures (ИСПРАВЛЕНА)
+// ФУНКЦИЯ: Получение исторических свечей с BingX Futures (ИСПРАВЛЕНА!)
 // ==========================
 async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
   try {
     const params = {
       symbol: `${symbol}USDT`,
       interval,
-      limit
+      limit,
+      timestamp: Date.now()
     };
-    const timestamp = Date.now();
-    params.timestamp = timestamp;
     const signature = signBingXRequest(params);
-    // ВАЖНО: Отправляем параметры в ТЕЛЕ POST-запроса, а не в query string!
-    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/quote/klines`;
-    console.log(`🌐 Получение истории для ${symbol}: POST ${url}`);
-    const response = await axios.post(url, params, { // <-- Используем POST и передаем params в тело
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/quote/klines?symbol=${params.symbol}&interval=${params.interval}&limit=${params.limit}&timestamp=${params.timestamp}&signature=${signature}`;
+    console.log(`🌐 Получение истории для ${symbol}: GET ${url}`);
+    const response = await axios.get(url, {
       headers: { 
         'X-BX-APIKEY': BINGX_API_KEY,
-        'Content-Type': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       },
       timeout: 10000
     });
     console.log('✅ [ИСТОРИЯ] Ответ:', JSON.stringify(response.data, null, 2));
+    
     if (response.data.code === 0 && Array.isArray(response.data.data)) {
       const candles = response.data.data.map(candle => ({
         time: candle[0],
@@ -225,29 +211,27 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение текущих цен с BingX (ИСПРАВЛЕНА)
+// ФУНКЦИЯ: Получение текущих цен с BingX (ИСПРАВЛЕНА!)
 // ==========================
 async function getCurrentPrices() {
   try {
     const symbols = globalState.watchlist.map(coin => coin.symbol).join(',');
     const params = {
-      symbols
+      symbols,
+      timestamp: Date.now()
     };
-    const timestamp = Date.now();
-    params.timestamp = timestamp;
     const signature = signBingXRequest(params);
-    // ВАЖНО: Отправляем параметры в ТЕЛЕ POST-запроса
-    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/quote/ticker/price`;
-    console.log(`🌐 Получение текущих цен: POST ${url}`);
-    const response = await axios.post(url, params, { // <-- Используем POST
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/quote/ticker/price?symbols=${symbols}&timestamp=${params.timestamp}&signature=${signature}`;
+    console.log(`🌐 Получение текущих цен: GET ${url}`);
+    const response = await axios.get(url, {
       headers: { 
         'X-BX-APIKEY': BINGX_API_KEY,
-        'Content-Type': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       },
       timeout: 10000
     });
     console.log('✅ [ЦЕНЫ] Ответ:', JSON.stringify(response.data, null, 2));
+
     if (response.data.code === 0 && Array.isArray(response.data.data)) {
       const prices = {};
       response.data.data.forEach(item => {
@@ -314,7 +298,6 @@ async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null
       console.log(`ℹ️ [ОРДЕР] API-ключи не заданы. Ордер ${side} ${quantity} ${symbol} симулирован.`);
       return { orderId: `fake_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` };
     }
-    // Устанавливаем плечо
     const leverageSet = await setBingXLeverage(symbol, leverage);
     if (!leverageSet) {
       console.log(`❌ Не удалось установить плечо ${leverage}x для ${symbol}`);
@@ -328,7 +311,6 @@ async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null
       quantity: quantity.toFixed(6),
       timestamp: timestamp
     };
-    // Для лимитных ордеров добавляем цену
     if (price && type === 'LIMIT') {
       params.price = price.toFixed(8);
     }
@@ -367,10 +349,11 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
   console.log(`🔄 Текущий режим: ${globalState.isRealMode ? 'РЕАЛЬНЫЙ' : 'ДЕМО'}`);
   console.log(`⚡ Торговый режим: ${globalState.tradeMode}`);
   console.log(`💣 Уровень риска: ${globalState.riskLevel}`);
+  
   if (globalState.isRealMode) {
     const result = await placeBingXFuturesOrder(symbol, direction === 'LONG' ? 'BUY' : 'SELL', 'MARKET', size, null, leverage);
     if (result) {
-      const fee = size * price * globalState.takerFee; // Комиссия тейкера
+      const fee = size * price * globalState.takerFee;
       const trade = {
         coin,
         type: direction,
@@ -439,19 +422,15 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
 function calculateRiskScore(coin) {
   const fundamentalData = globalState.marketMemory.fundamentalData[coin];
   const volatility = globalState.marketMemory.volatilityHistory[coin][globalState.marketMemory.volatilityHistory[coin].length - 1] || 0.02;
-  // Базовая оценка риска (0-100)
   let riskScore = 50;
-  // Учитываем волатильность
   if (volatility > 0.05) riskScore += 20;
   if (volatility < 0.02) riskScore -= 10;
-  // Учитываем фундаментальные данные
   if (fundamentalData && fundamentalData.developerActivity) {
-    if (fundamentalData.developerActivity > 100) riskScore -= 15; // Много активности разработчиков - меньше риск
-    else if (fundamentalData.developerActivity < 20) riskScore += 25; // Мало активности - больше риск
+    if (fundamentalData.developerActivity > 100) riskScore -= 15;
+    else if (fundamentalData.developerActivity < 20) riskScore += 25;
   }
-  // Учитываем Fear & Greed Index
-  if (globalState.fearIndex < 30) riskScore -= 15; // Страх - меньше риск для LONG
-  else if (globalState.fearIndex > 70) riskScore += 15; // Жадность - больше риск
+  if (globalState.fearIndex < 30) riskScore -= 15;
+  else if (globalState.fearIndex > 70) riskScore += 15;
   return Math.max(0, Math.min(100, riskScore));
 }
 
@@ -462,7 +441,6 @@ function analyzeMarketWithAdaptiveStrategy(candles, coinName, currentFearIndex, 
   if (candles.length < 50) return null;
   const prices = candles.map(c => c.close);
   const currentPrice = prices[prices.length - 1];
-  // Рассчитываем индикаторы
   const sma20 = calculateSMA(prices, 20);
   const sma50 = calculateSMA(prices, 50);
   const sma200 = calculateSMA(prices, 200);
@@ -472,32 +450,24 @@ function analyzeMarketWithAdaptiveStrategy(candles, coinName, currentFearIndex, 
   const bollingerLower = calculateBollingerBands(prices, 20, 2).lower;
   const macd = calculateMACD(prices);
   const ichimoku = calculateIchimokuCloud(candles);
-  // Рассчитываем волатильность
   const volatility = atr / currentPrice;
   const isHighVolatility = volatility > 0.05;
   const isLowVolatility = volatility < 0.02;
-  // Рассчитываем тренд
   const isUptrend = sma20 > sma50 && sma50 > sma200;
   const isDowntrend = sma20 < sma50 && sma50 < sma200;
   const isSideways = Math.abs(sma20 - sma50) / sma20 < 0.01;
-  // Рассчитываем перекупленность/перепроданность
   const isOverbought = rsi > 70;
   const isOversold = rsi < 30;
-  // Рассчитываем MACD сигнал
   const isMACDBullish = macd.macd > macd.signal;
   const isMACDBearish = macd.macd < macd.signal;
-  // Рассчитываем Ichimoku Cloud
   const isIchimokuBullish = currentPrice > ichimoku.senkouSpanA && currentPrice > ichimoku.senkouSpanB;
   const isIchimokuBearish = currentPrice < ichimoku.senkouSpanA && currentPrice < ichimoku.senkouSpanB;
-  // Рассчитываем Bollinger Bands
   const isBollingerUpperBreak = currentPrice > bollingerUpper;
   const isBollingerLowerBreak = currentPrice < bollingerLower;
   const isBollingerSqueeze = (bollingerUpper - bollingerLower) / sma20 < 0.01;
-  // Рассчитываем фундаментальную оценку
   const fundamentalScore = fundamentalData ? calculateFundamentalScore(fundamentalData) : 50;
-  // Рассчитываем общую оценку рынка
   const marketSentiment = calculateMarketSentiment(currentFearIndex, fundamentalScore);
-  // Определяем сигнал
+
   let signal = {
     direction: null,
     confidence: 0.5,
@@ -507,7 +477,7 @@ function analyzeMarketWithAdaptiveStrategy(candles, coinName, currentFearIndex, 
     takeProfit: null,
     riskScore: 50
   };
-  // Базовые правила для адаптивного режима
+
   if (isUptrend && isMACDBullish && isIchimokuBullish && !isOverbought) {
     signal.direction = 'LONG';
     signal.confidence += 0.3;
@@ -538,7 +508,6 @@ function analyzeMarketWithAdaptiveStrategy(candles, coinName, currentFearIndex, 
     signal.confidence += 0.2;
     signal.reasoning.push("🎯 Прорыв нижней полосы Bollinger + нисходящий тренд");
   }
-  // Учитываем Fear & Greed Index
   if (currentFearIndex < 25 && signal.direction === 'LONG') {
     signal.confidence += 0.15;
     signal.reasoning.push("😱 Сильный страх + перепроданность → отличная возможность для LONG");
@@ -547,7 +516,6 @@ function analyzeMarketWithAdaptiveStrategy(candles, coinName, currentFearIndex, 
     signal.confidence += 0.15;
     signal.reasoning.push("🤑 Сильная жадность + перекупленность → отличная возможность для SHORT");
   }
-  // Учитываем фундаментальную оценку
   if (fundamentalScore > 70 && signal.direction === 'LONG') {
     signal.confidence += 0.1;
     signal.reasoning.push("📊 Высокая фундаментальная оценка → поддержка LONG");
@@ -556,31 +524,14 @@ function analyzeMarketWithAdaptiveStrategy(candles, coinName, currentFearIndex, 
     signal.confidence += 0.1;
     signal.reasoning.push("📊 Низкая фундаментальная оценка → поддержка SHORT");
   }
-  // Рассчитываем риск-скор
+
   signal.riskScore = calculateRiskScore(coinName);
-  // Устанавливаем стоп-лосс и тейк-профит в зависимости от волатильности
   const atrMultiplier = isHighVolatility ? 2.5 : 1.5;
   const volatilityFactor = isLowVolatility ? 0.8 : 1.2;
+
   if (signal.direction === 'LONG') {
-    signal.stopLoss = currentPrice * (1 - (atr * atrMultiplier / currentPrice));
-    signal.takeProfit = currentPrice * (1 + (atr * atrMultiplier * 2 / currentPrice));
-    // Динамическое плечо в зависимости от волатильности
-    if (isHighVolatility) {
-      signal.leverage = Math.min(3, globalState.maxLeverage * 0.5);
-      signal.reasoning.push("⚠️ Высокая волатильность → снижаем плечо");
-    } else if (isLowVolatility) {
-      signal.leverage = Math.min(10, globalState.maxLeverage * 1.5);
-      signal.reasoning.push("📉 Низкая волатильность → увеличиваем плечо");
-    } else {
-      signal.leverage = globalState.maxLeverage;
-    }
-    // Адаптивный риск-менеджмент
     signal.stopLoss = currentPrice * (1 - (volatility * volatilityFactor * 3));
     signal.takeProfit = currentPrice * (1 + (volatility * volatilityFactor * 6));
-  } else if (signal.direction === 'SHORT') {
-    signal.stopLoss = currentPrice * (1 + (atr * atrMultiplier / currentPrice));
-    signal.takeProfit = currentPrice * (1 - (atr * atrMultiplier * 2 / currentPrice));
-    // Динамическое плечо в зависимости от волатильности
     if (isHighVolatility) {
       signal.leverage = Math.min(3, globalState.maxLeverage * 0.5);
       signal.reasoning.push("⚠️ Высокая волатильность → снижаем плечо");
@@ -590,11 +541,20 @@ function analyzeMarketWithAdaptiveStrategy(candles, coinName, currentFearIndex, 
     } else {
       signal.leverage = globalState.maxLeverage;
     }
-    // Адаптивный риск-менеджмент
+  } else if (signal.direction === 'SHORT') {
     signal.stopLoss = currentPrice * (1 + (volatility * volatilityFactor * 3));
     signal.takeProfit = currentPrice * (1 - (volatility * volatilityFactor * 6));
+    if (isHighVolatility) {
+      signal.leverage = Math.min(3, globalState.maxLeverage * 0.5);
+      signal.reasoning.push("⚠️ Высокая волатильность → снижаем плечо");
+    } else if (isLowVolatility) {
+      signal.leverage = Math.min(10, globalState.maxLeverage * 1.5);
+      signal.reasoning.push("📉 Низкая волатильность → увеличиваем плечо");
+    } else {
+      signal.leverage = globalState.maxLeverage;
+    }
   }
-  // Учитываем фундаментальную оценку в риске
+
   if (signal.riskScore > 70) {
     signal.confidence *= 0.8;
     signal.reasoning.push("⚠️ Высокий риск-скор → снижаем уверенность");
@@ -602,11 +562,13 @@ function analyzeMarketWithAdaptiveStrategy(candles, coinName, currentFearIndex, 
     signal.confidence *= 1.2;
     signal.reasoning.push("✅ Низкий риск-скор → увеличиваем уверенность");
   }
+
   signal.reasoning.push(`📊 Волатильность: ${volatility.toFixed(4)} (${isHighVolatility ? 'Высокая' : isLowVolatility ? 'Низкая' : 'Средняя'})`);
   signal.reasoning.push(`📈 Рыночный тренд: ${isUptrend ? 'Восходящий' : isDowntrend ? 'Нисходящий' : 'Боковой'}`);
   signal.reasoning.push(`🧠 Рыночный sentiment: ${marketSentiment.toFixed(0)}%`);
   signal.reasoning.push(`🔍 Фундаментальная оценка: ${fundamentalScore.toFixed(0)}/100`);
   signal.reasoning.push(`⚠️ Риск-скор: ${signal.riskScore.toFixed(0)}/100`);
+
   return {
     coin: coinName,
     currentPrice,
@@ -697,14 +659,12 @@ function calculateIchimokuCloud(candles) {
 }
 function calculateFundamentalScore(fundamentalData) {
   let score = 50;
-  // Учитываем активность разработчиков
   if (fundamentalData.developerActivity) {
     if (fundamentalData.developerActivity > 100) score += 20;
     else if (fundamentalData.developerActivity > 50) score += 10;
     else if (fundamentalData.developerActivity < 20) score -= 15;
     else if (fundamentalData.developerActivity < 10) score -= 25;
   }
-  // Учитываем социальный сентимент
   if (fundamentalData.socialSentiment) {
     if (fundamentalData.socialSentiment > 70) score += 15;
     else if (fundamentalData.socialSentiment > 50) score += 5;
@@ -714,7 +674,6 @@ function calculateFundamentalScore(fundamentalData) {
   return Math.max(0, Math.min(100, score));
 }
 function calculateMarketSentiment(fearIndex, fundamentalScore) {
-  // Усредняем Fear & Greed Index и фундаментальную оценку
   return (fearIndex + fundamentalScore) / 2;
 }
 
@@ -729,7 +688,6 @@ async function checkOpenPositions(currentPrices) {
     if (!currentPrice) continue;
     let shouldClose = false;
     let reason = '';
-    // Проверяем тейк-профит
     if (position.type === 'LONG' && currentPrice >= position.takeProfit) {
       shouldClose = true;
       reason = '🎯 Достигнут тейк-профит — фиксируем прибыль';
@@ -737,7 +695,6 @@ async function checkOpenPositions(currentPrices) {
       shouldClose = true;
       reason = '🎯 Достигнут тейк-профит — фиксируем прибыль';
     }
-    // Проверяем стоп-лосс
     if (position.type === 'LONG' && currentPrice <= position.stopLoss) {
       shouldClose = true;
       reason = '🛑 Сработал стоп-лосс';
@@ -745,7 +702,6 @@ async function checkOpenPositions(currentPrices) {
       shouldClose = true;
       reason = '🛑 Сработал стоп-лосс';
     }
-    // Проверяем трейлинг-стоп
     if (position.type === 'LONG' && currentPrice > position.entryPrice * 1.01) {
       position.trailingStop = Math.max(position.trailingStop || position.entryPrice, currentPrice * 0.99);
       if (currentPrice <= position.trailingStop) {
@@ -759,7 +715,6 @@ async function checkOpenPositions(currentPrices) {
         reason = '📉 Трейлинг-стоп сработал';
       }
     }
-    // Динамическое закрытие при высоком риске
     if (position.riskScore > 80) {
       shouldClose = true;
       reason = '⚠️ Высокий риск-скор → закрываем позицию';
@@ -776,16 +731,14 @@ async function checkOpenPositions(currentPrices) {
         trade.status = 'CLOSED';
         if (trade.profitPercent > 0) {
           globalState.stats.profitableTrades++;
-          if (globalState.isRealMode) {
-            // В реальном режиме баланс обновляется через API
-          } else {
+          if (globalState.isRealMode) {}
+          else {
             globalState.balance += (trade.size * trade.entryPrice * trade.profitPercent);
           }
         } else {
           globalState.stats.losingTrades++;
-          if (globalState.isRealMode) {
-            // В реальном режиме баланс обновляется через API
-          } else {
+          if (globalState.isRealMode) {}
+          else {
             globalState.balance += (trade.size * trade.entryPrice * trade.profitPercent);
           }
         }
@@ -793,7 +746,6 @@ async function checkOpenPositions(currentPrices) {
       globalState.positions[coin.name] = null;
       globalState.marketMemory.consecutiveTrades[coin.name] = 0;
     } else {
-      // Обновляем трейлинг-стоп
       if (position.type === 'LONG' && currentPrice > position.entryPrice * 1.01) {
         position.trailingStop = Math.max(position.trailingStop || position.entryPrice, currentPrice * 0.99);
       } else if (position.type === 'SHORT' && currentPrice < position.entryPrice * 0.99) {
@@ -808,45 +760,40 @@ async function checkOpenPositions(currentPrices) {
 // ==========================
 function setRiskLevel(level) {
   globalState.riskLevel = level;
-  // Базовые настройки в зависимости от торгового режима
   if (globalState.tradeMode === 'scalping') {
-    // Для скальпинга — более агрессивные стопы и тейки
     globalState.scalpingSettings = {
-      takeProfitPercent: 0.01, // +1%
-      stopLossPercent: 0.005   // -0.5%
+      takeProfitPercent: 0.01,
+      stopLossPercent: 0.005
     };
   } else if (globalState.tradeMode === 'swing') {
-    // Для свинг-торговли — более консервативные
     globalState.scalpingSettings = {
-      takeProfitPercent: 0.05, // +5%
-      stopLossPercent: 0.03   // -3%
+      takeProfitPercent: 0.05,
+      stopLossPercent: 0.03
     };
   } else {
-    // Для адаптивного режима
     globalState.scalpingSettings = {
-      takeProfitPercent: 0.03, // +3%
-      stopLossPercent: 0.02   // -2%
+      takeProfitPercent: 0.03,
+      stopLossPercent: 0.02
     };
   }
-  // Устанавливаем риск и плечо в зависимости от уровня
   switch(level) {
     case 'recommended':
-      globalState.maxRiskPerTrade = 0.01; // 1%
+      globalState.maxRiskPerTrade = 0.01;
       globalState.maxLeverage = 3;
       console.log('📉 Установлен РЕКОМЕНДУЕМЫЙ уровень риска: 1%, плечо 3x');
       break;
     case 'medium':
-      globalState.maxRiskPerTrade = 0.02; // 2%
+      globalState.maxRiskPerTrade = 0.02;
       globalState.maxLeverage = 5;
       console.log('⚖️ Установлен СРЕДНИЙ уровень риска: 2%, плечо 5x');
       break;
     case 'high':
-      globalState.maxRiskPerTrade = 0.05; // 5%
+      globalState.maxRiskPerTrade = 0.05;
       globalState.maxLeverage = 10;
       console.log('🚀 Установлен ВЫСОКИЙ уровень риска: 5%, плечо 10x');
       break;
     case 'extreme':
-      globalState.maxRiskPerTrade = 0.10; // 10%
+      globalState.maxRiskPerTrade = 0.10;
       globalState.maxLeverage = 20;
       console.log('💥 Установлен ЭКСТРЕМАЛЬНЫЙ уровень риска: 10%, плечо 20x (ОЧЕНЬ ВЫСОКИЙ РИСК!)');
       break;
@@ -855,27 +802,20 @@ function setRiskLevel(level) {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение фундаментальных данных монеты (ИСПРАВЛЕНА с кэшированием)
+// ФУНКЦИЯ: Получение фундаментальных данных монеты (ИСПРАВЛЕНА!)
 // ==========================
 async function getFundamentalData(coin) {
   const now = Date.now();
   const cacheKey = coin.name;
-  const cacheDuration = 300000; // 5 минут в миллисекундах
-  
-  // Если есть кэш и он еще не истек, возвращаем его
-  if (globalState.fundamentalCache && 
-      globalState.fundamentalCache[cacheKey] && 
+  const cacheDuration = 300000; // 5 минут
+
+  if (globalState.fundamentalCache[cacheKey] && 
       now - globalState.fundamentalCache[cacheKey].timestamp < cacheDuration) {
     console.log(`💾 Использую кэшированные фундаментальные данные для ${coin.name}`);
     return globalState.fundamentalCache[cacheKey].data;
   }
 
   try {
-    // Инициализируем кэш, если еще не создан
-    if (!globalState.fundamentalCache) {
-      globalState.fundamentalCache = {};
-    }
-    
     const response = await axios.get(`https://api.coingecko.com/api/v3/coins/${coin.name}`, {
       params: {
         localization: false,
@@ -887,6 +827,7 @@ async function getFundamentalData(coin) {
       },
       timeout: 10000
     });
+
     const data = response.data;
     const fundamentalData = {
       hashRate: null,
@@ -897,17 +838,15 @@ async function getFundamentalData(coin) {
     };
 
     if (data.market_data) {
-      // Исправление: используем sentiment_votes_up_percentage, а не twitter_followers
       fundamentalData.socialSentiment = data.market_data.sentiment_votes_up_percentage || 50;
     }
     if (data.developer_data) {
       fundamentalData.developerActivity = data.developer_data.commits_30d || 0;
     }
-    // Убрано: data.community_data.twitter_followers -> это неверно, так как уже используется market_data.sentiment
+    // ❌ УБРАНО: НЕ ПЕРЕЗАПИСЫВАЕМ socialSentiment через twitter_followers!
 
-    // Сохраняем данные в кэш
     globalState.fundamentalCache[cacheKey] = {
-      data: fundamentalData,
+      fundamentalData,
       timestamp: now
     };
     globalState.marketMemory.fundamentalData[coin.name] = fundamentalData;
@@ -915,8 +854,7 @@ async function getFundamentalData(coin) {
 
   } catch (error) {
     console.error(`❌ Ошибка получения фундаментальных данных для ${coin.name}:`, error.message);
-    // Если ошибка, можно вернуть кэшированные данные (если есть) или дефолтные
-    if (globalState.fundamentalCache && globalState.fundamentalCache[cacheKey]) {
+    if (globalState.fundamentalCache[cacheKey]) {
       console.log(`⚠️ Использую устаревшие данные для ${coin.name} из-за ошибки API`);
       return globalState.fundamentalCache[cacheKey].data;
     }
@@ -967,7 +905,6 @@ function toggleTradeMode() {
   const currentIndex = modes.indexOf(globalState.tradeMode);
   const nextIndex = (currentIndex + 1) % modes.length;
   globalState.tradeMode = modes[nextIndex];
-  // При переключении режима — сохраняем текущий уровень риска, но обновляем параметры
   setRiskLevel(globalState.riskLevel);
   console.log(`⚡ Торговый режим переключён на: ${globalState.tradeMode}`);
   return globalState.tradeMode;
@@ -991,7 +928,7 @@ function printStats() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение новостей крипторынка (на русском с 🐂/🐻)
+// ФУНКЦИЯ: Получение новостей крипторынка
 // ==========================
 async function getCryptoNews() {
   try {
@@ -1086,7 +1023,7 @@ async function getCryptoNews() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Тестирование API BingX (реальная сделка с 30% риском)
+// ФУНКЦИЯ: Тестирование API BingX
 // ==========================
 async function testBingXAPI() {
   try {
@@ -1095,23 +1032,19 @@ async function testBingXAPI() {
       console.error('❌ [ТЕСТ] API-ключи не заданы в переменных окружения');
       return { success: false, message: 'API-ключи не заданы' };
     }
-    // Шаг 1: Получаем баланс
     const balance = await getBingXRealBalance();
     if (balance === null) {
       console.error('❌ [ТЕСТ] Не удалось получить баланс');
       return { success: false, message: 'Не удалось получить баланс' };
     }
-    // Шаг 2: Получаем текущую цену BTC
     const btcPrice = await getCurrentPrices();
     const btcPriceValue = btcPrice.bitcoin || 62450.50;
-    // Шаг 3: Рассчитываем размер позиции (30% РИСКА от баланса)
-    const riskPercent = 0.3; // 30% риск
-    const stopLossPercent = 0.02; // 2% стоп-лосс
+    const riskPercent = 0.3;
+    const stopLossPercent = 0.02;
     const riskAmount = balance * riskPercent;
     const stopDistance = btcPriceValue * stopLossPercent;
     const size = riskAmount / stopDistance;
     console.log(`🧪 [ТЕСТ] Открываем тестовую позицию LONG с риском 30% от баланса: $${riskAmount.toFixed(2)}`);
-    // Шаг 4: Открываем реальную позицию
     const result = await placeBingXFuturesOrder(
       'BTC',
       'BUY',
@@ -1166,47 +1099,40 @@ async function testBingXAPI() {
   console.log('💣 setRiskLevel() — установить уровень риска (recommended, medium, high, extreme)');
   console.log('🧪 testBingXAPI() — протестировать подключение к BingX (реальная сделка с 30% риском)');
   
-  // Устанавливаем начальный уровень риска
   setRiskLevel('recommended');
-  globalState.tradeMode = 'adaptive'; // Адаптивный режим по умолчанию
-  
-  // Принудительно обновляем реальный баланс при старте
+  globalState.tradeMode = 'adaptive';
   await forceUpdateRealBalance();
-  
+
   while (globalState.isRunning) {
     try {
       console.log(`
 [${new Date().toLocaleTimeString()}] === АНАЛИЗ ОТ ВАСИ 3000 ===`);
       const fearIndex = await getFearAndGreedIndex();
       console.log(`😱 Индекс страха и жадности: ${fearIndex}`);
-      
-      // Обновляем реальный баланс каждые 5 минут
+
       if (Date.now() % 300000 < 10000) {
         await forceUpdateRealBalance();
       }
-      
-      // Получаем текущие цены
+
       const currentPrices = await getCurrentPrices();
       globalState.currentPrices = currentPrices;
-      
-      // Получаем фундаментальные данные для всех монет с задержкой между запросами
+
+      // 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: ЗАДЕРЖКА МЕЖДУ ЗАПРОСАМИ К COINGECKO
       for (const coin of globalState.watchlist) {
         await getFundamentalData(coin);
-        // Задержка 1.5 секунды между запросами к CoinGecko для избежания 429
-        await new Promise(r => setTimeout(r, 1500)); 
+        await new Promise(r => setTimeout(r, 1500)); // Ждём 1.5 сек — предотвращает 429
       }
-      
-      // Получаем новости каждые 30 минут
+
       if (Date.now() % 1800000 < 60000) {
         globalState.marketMemory.news = await getCryptoNews();
         console.log('📰 Получены последние новости крипторынка');
       }
-      
+
       await checkOpenPositions(currentPrices);
-      
+
       let bestOpportunity = null;
       let bestReasoning = [];
-      
+
       for (const coin of globalState.watchlist) {
         console.log(`
 🔍 Анализирую ${coin.name}...`);
@@ -1217,25 +1143,25 @@ async function testBingXAPI() {
           await new Promise(r => setTimeout(r, 1200));
           continue;
         }
-        
+
         const analysis = analyzeMarketWithAdaptiveStrategy(candles, coin.name, fearIndex, globalState.marketMemory.fundamentalData[coin.name]);
         
         if (!analysis || !analysis.signal.direction) {
           await new Promise(r => setTimeout(r, 1200));
           continue;
         }
-        
+
         console.log(`   ✅ Сигнал для ${coin.name}: ${analysis.signal.direction}`);
         analysis.signal.reasoning.forEach(r => console.log(`   • ${r}`));
-        
+
         if (!bestOpportunity || analysis.signal.confidence > bestOpportunity.signal.confidence) {
           bestOpportunity = analysis;
           bestReasoning = analysis.signal.reasoning;
         }
-        
+
         await new Promise(r => setTimeout(r, 1200));
       }
-      
+
       if (bestOpportunity && (globalState.isRealMode || globalState.balance > 10)) {
         console.log(`
 💎 ВАСЯ 3000 РЕКОМЕНДУЕТ: ${bestOpportunity.signal.direction} по ${bestOpportunity.coin}`);
@@ -1246,14 +1172,12 @@ async function testBingXAPI() {
         const stopDistance = bestOpportunity.signal.direction === 'LONG' 
           ? price - bestOpportunity.signal.stopLoss 
           : bestOpportunity.signal.stopLoss - price;
-        
-        // Рассчитываем размер позиции с учетом риска
         const size = riskAmount / stopDistance;
         const finalSize = Math.max(0.001, size);
-        
+
         console.log(`
 🟢 ВХОД: ${bestOpportunity.signal.direction} ${finalSize.toFixed(6)} ${bestOpportunity.coin} с плечом ${bestOpportunity.signal.leverage}x`);
-        
+
         await openFuturesTrade(
           bestOpportunity.coin,
           bestOpportunity.signal.direction,
@@ -1267,8 +1191,7 @@ async function testBingXAPI() {
         console.log(`
 ⚪ Вася 3000 не видит возможностей — отдыхаем...`);
       }
-      
-      // Обновляем статистику (для демо-режима)
+
       if (!globalState.isRealMode) {
         globalState.stats.totalProfit = globalState.balance - 100;
         if (globalState.balance > globalState.stats.peakBalance) {
@@ -1276,26 +1199,26 @@ async function testBingXAPI() {
         }
         globalState.stats.maxDrawdown = ((globalState.stats.peakBalance - globalState.balance) / globalState.stats.peakBalance) * 100;
       }
-      
+
       globalState.stats.winRate = globalState.stats.totalTrades > 0
         ? (globalState.stats.profitableTrades / globalState.stats.totalTrades) * 100
         : 0;
-      
+
       if (Date.now() % 60000 < 10000) {
         console.log(`
 💰 ${globalState.isRealMode ? 'Реальный' : 'Демо'}-баланс: $${(globalState.isRealMode ? globalState.realBalance : globalState.balance)?.toFixed(2) || 'Загрузка...'}`);
         console.log(`📊 Волатильность рынка: ${globalState.stats.volatilityIndex.toFixed(2)}%`);
         console.log(`🧠 Рыночный sentiment: ${globalState.stats.marketSentiment.toFixed(0)}%`);
       }
-      
+
       if (globalState.stats.totalTrades > 0 && globalState.history.length % 2 === 0) {
         printStats();
       }
-      
+
     } catch (error) {
       console.error('💥 КРИТИЧЕСКАЯ ОШИБКА В ЦИКЛЕ:', error.message);
     }
-    
+
     console.log(`
 💤 Ждём 60 секунд до следующего анализа...`);
     await new Promise(r => setTimeout(r, 60000));
