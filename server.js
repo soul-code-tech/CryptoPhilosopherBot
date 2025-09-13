@@ -39,10 +39,10 @@ let globalState = {
   maxRiskPerTrade: 0.01,  // 1% от депозита по умолчанию
   maxLeverage: 3,         // 3x плечо
   watchlist: [
-    { symbol: 'BTC', name: 'bitcoin' },
-    { symbol: 'ETH', name: 'ethereum' },
-    { symbol: 'SOL', name: 'solana' },
-    { symbol: 'XRP', name: 'ripple' }
+    { symbol: 'BTC-USDT', name: 'bitcoin' },
+    { symbol: 'ETH-USDT', name: 'ethereum' },
+    { symbol: 'SOL-USDT', name: 'solana' },
+    { symbol: 'XRP-USDT', name: 'ripple' }
   ],
   isRealMode: false, // false = демо, true = реальный режим
   tradeMode: 'adaptive', // 'adaptive' (адаптивный режим), 'scalping', 'swing'
