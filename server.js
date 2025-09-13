@@ -116,10 +116,9 @@ const BINGX_FUTURES_URL = process.env.BINGX_API_DOMAIN || 'https://open-api.bing
 const APP_PASSWORD = process.env.APP_PASSWORD || 'admin123';
 
 // ==========================
-// ФУНКЦИЯ: Подпись запроса для BingX (СОГЛАСНО ДОКУМЕНТАЦИИ)
+// ФУНКЦИЯ: Подпись запроса для BingX
 // ==========================
 function signBingXRequest(params) {
-  // Согласно документации BingX: параметры объединяются без сортировки
   const cleanParams = { ...params };
   delete cleanParams.signature;
   
@@ -128,8 +127,6 @@ function signBingXRequest(params) {
     if (paramString !== "") {
       paramString += "&";
     }
-    // Согласно документации: кодирование URL только для значений, не для ключей
-    // Исключение: timestamp не требует кодирования
     if (key === 'timestamp') {
       paramString += `${key}=${cleanParams[key]}`;
     } else {
@@ -163,7 +160,7 @@ async function getFearAndGreedIndex() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение реального баланса (СОГЛАСНО ДОКУМЕНТАЦИИ)
+// ФУНКЦИЯ: Получение реального баланса
 // ==========================
 async function getBingXRealBalance() {
   try {
@@ -176,7 +173,6 @@ async function getBingXRealBalance() {
     const timestamp = Date.now();
     const params = { timestamp, recvWindow: 5000 };
     const signature = signBingXRequest(params);
-    // Согласно документации: /openApi/cswap/v1/user/balance
     const url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/user/balance?timestamp=${timestamp}&recvWindow=5000&signature=${signature}`;
 
     console.log('🌐 [БАЛАНС] Отправляю запрос:', url);
@@ -209,20 +205,36 @@ async function getBingXRealBalance() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение исторических свечей (СОГЛАСНО ДОКУМЕНТАЦИИ)
+// ФУНКЦИЯ: Получение исторических свечей (ИСПРАВЛЕНО: добавлена подпись)
 // ==========================
 async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
   try {
-    // Для публичных эндпоинтов не требуется подпись, согласно документации
-    const url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/market/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+    if (!BINGX_API_KEY || !BINGX_SECRET_KEY) {
+      console.error('❌ API-ключи не заданы для получения истории');
+      return [];
+    }
+
+    const timestamp = Date.now();
+    const params = {
+      symbol: symbol,
+      interval,
+      limit,
+      timestamp,
+      recvWindow: 5000
+    };
+
+    const signature = signBingXRequest(params);
+    // Добавлена подпись и API-ключ, так как BingX требует аутентификацию
+    const url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/market/klines?symbol=${params.symbol}&interval=${params.interval}&limit=${params.limit}&timestamp=${params.timestamp}&recvWindow=5000&signature=${signature}`;
 
     console.log(`🌐 Получение истории для ${symbol}: GET ${url}`);
 
     const response = await axios.get(url, {
+      headers: { 'X-BX-APIKEY': BINGX_API_KEY },
       timeout: 10000
     });
 
-    if (Array.isArray(response.data.data)) {
+    if (response.data.code === 0 && Array.isArray(response.data.data)) {
       return response.data.data.map(candle => ({
         time: candle[0],
         open: parseFloat(candle[1]),
@@ -242,24 +254,38 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
 }
 
 // ==========================
-// ФУНКЦИЯ: Получение текущих цен (СОГЛАСНО ДОКУМЕНТАЦИИ)
+// ФУНКЦИЯ: Получение текущих цен (ИСПРАВЛЕНО: добавлена подпись)
 // ==========================
 async function getCurrentPrices() {
   try {
     const prices = {};
 
     for (const coin of globalState.watchlist) {
-      // Для публичных эндпоинтов не требуется подпись
-      const url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/market/ticker?symbol=${coin.symbol}`;
+      if (!BINGX_API_KEY || !BINGX_SECRET_KEY) {
+        console.error('❌ API-ключи не заданы для получения цен');
+        continue;
+      }
+
+      const timestamp = Date.now();
+      const params = {
+        symbol: coin.symbol,
+        timestamp,
+        recvWindow: 5000
+      };
+
+      const signature = signBingXRequest(params);
+      // Добавлена подпись и API-ключ, так как BingX требует аутентификацию
+      const url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/market/ticker?symbol=${params.symbol}&timestamp=${params.timestamp}&recvWindow=5000&signature=${signature}`;
 
       console.log(`🌐 Получение цены для ${coin.symbol}: GET ${url}`);
 
       try {
         const response = await axios.get(url, {
+          headers: { 'X-BX-APIKEY': BINGX_API_KEY },
           timeout: 10000
         });
 
-        if (response.data.data && response.data.data.price) {
+        if (response.data.code === 0 && response.data.data && response.data.data.price) {
           const price = parseFloat(response.data.data.price);
           const cleanSymbol = coin.name;
           prices[cleanSymbol] = price;
@@ -283,7 +309,7 @@ async function getCurrentPrices() {
 }
 
 // ==========================
-// ФУНКЦИЯ: Установка плеча (СОГЛАСНО ДОКУМЕНТАЦИИ)
+// ФУНКЦИЯ: Установка плеча
 // ==========================
 async function setBingXLeverage(symbol, leverage) {
   try {
@@ -302,7 +328,6 @@ async function setBingXLeverage(symbol, leverage) {
     };
 
     const signature = signBingXRequest(params);
-    // Согласно документации: POST /openApi/cswap/v1/trade/leverage
     const url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/trade/leverage?symbol=${params.symbol}&side=${params.side}&leverage=${params.leverage}&timestamp=${params.timestamp}&recvWindow=5000&signature=${signature}`;
 
     const response = await axios.post(url, null, {
@@ -324,7 +349,7 @@ async function setBingXLeverage(symbol, leverage) {
 }
 
 // ==========================
-// ФУНКЦИЯ: Размещение ордера (СОГЛАСНО ДОКУМЕНТАЦИИ)
+// ФУНКЦИЯ: Размещение ордера
 // ==========================
 async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null, leverage, positionSide) {
   try {
@@ -885,7 +910,7 @@ const createIndexHtml = () => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Философ Рынка — Торговый Бот v4.2 (BingX API)</title>
+    <title>Философ Рынка — Торговый Бот v4.3</title>
     <style>
         :root {
             --primary: #3498db;
@@ -964,7 +989,6 @@ const createIndexHtml = () => {
         .card-value {
             font-size: 2rem;
             font-weight: bold;
-            color: var(--primary);
             margin-bottom: 10px;
         }
         
@@ -1148,39 +1172,39 @@ const createIndexHtml = () => {
     
     <div class="container">
         <header>
-            <h1>Философ Рынка — Торговый Бот v4.2</h1>
-            <p class="subtitle">Официальная реализация BingX API</p>
+            <h1>Философ Рынка — Торговый Бот v4.3</h1>
+            <p class="subtitle">Исправленная версия с BingX API</p>
         </header>
         
         <div class="dashboard">
             <div class="card">
                 <div class="card-title">Текущий баланс</div>
-                <div class="card-value" id="balance">$${globalState.balance.toFixed(2)}</div>
-                <div class="card-subtitle">${globalState.isRealMode ? 'Реальный баланс' : 'Демо-баланс'}</div>
+                <div class="card-value" id="balance">$100.00</div>
+                <div class="card-subtitle" id="balanceMode">Демо-баланс</div>
             </div>
             
             <div class="card">
                 <div class="card-title">Режим торговли</div>
-                <div class="card-value" id="tradeMode">${globalState.tradeMode}</div>
+                <div class="card-value" id="tradeMode">adaptive</div>
                 <div class="card-subtitle">Текущая стратегия</div>
             </div>
             
             <div class="card">
                 <div class="card-title">Уровень риска</div>
-                <div class="card-value" id="riskLevel">${globalState.riskLevel}</div>
-                <div class="card-subtitle">Макс. риск: ${(globalState.maxRiskPerTrade * 100).toFixed(1)}%</div>
+                <div class="card-value" id="riskLevel">recommended</div>
+                <div class="card-subtitle">Макс. риск: 1.0%</div>
             </div>
             
             <div class="card">
                 <div class="card-title">Индекс страха</div>
-                <div class="card-value" id="fearIndex">${globalState.fearIndex}</div>
+                <div class="card-value" id="fearIndex">50</div>
                 <div class="card-subtitle">Настроения рынка</div>
             </div>
         </div>
         
         <h2>Управление капиталом</h2>
         <div class="controls">
-            <button class="btn btn-primary" onclick="toggleMode()">Переключить режим</button>
+            <button class="btn btn-primary" onclick="toggleMode()">Переключить режим (ДЕМО/РЕАЛ)</button>
             <button class="btn btn-primary" onclick="toggleTradeMode()">Сменить стратегию</button>
             <button class="btn btn-success" onclick="setRiskLevel('recommended')">Рекомендуемый риск</button>
             <button class="btn btn-warning" onclick="setRiskLevel('medium')">Средний риск</button>
@@ -1213,25 +1237,25 @@ const createIndexHtml = () => {
         <div class="dashboard">
             <div class="card">
                 <div class="card-title">Всего сделок</div>
-                <div class="card-value">${globalState.stats.totalTrades}</div>
+                <div class="card-value">0</div>
                 <div class="card-subtitle">С начала работы</div>
             </div>
             
             <div class="card">
                 <div class="card-title">Прибыльных</div>
-                <div class="card-value">${globalState.stats.profitableTrades}</div>
+                <div class="card-value">0</div>
                 <div class="card-subtitle">Успешные сделки</div>
             </div>
             
             <div class="card">
                 <div class="card-title">Убыточных</div>
-                <div class="card-value">${globalState.stats.losingTrades}</div>
+                <div class="card-value">0</div>
                 <div class="card-subtitle">Неудачные сделки</div>
             </div>
             
             <div class="card">
                 <div class="card-title">Процент успеха</div>
-                <div class="card-value">${globalState.stats.winRate.toFixed(1)}%</div>
+                <div class="card-value">0.0%</div>
                 <div class="card-subtitle">Win Rate</div>
             </div>
         </div>
@@ -1251,19 +1275,9 @@ const createIndexHtml = () => {
                     </tr>
                 </thead>
                 <tbody id="historyBody">
-                    ${globalState.history.slice(-10).map(h => `
                     <tr>
-                        <td>${h.timestamp}</td>
-                        <td>${h.coin}</td>
-                        <td>${h.type}</td>
-                        <td>$${h.entryPrice ? h.entryPrice.toFixed(4) : '...'}</td>
-                        <td>$${h.exitPrice ? h.exitPrice.toFixed(4) : '...'}</td>
-                        <td class="${h.profitPercent > 0 ? 'profit' : 'loss'}">
-                            ${h.profitPercent ? (h.profitPercent > 0 ? '+' : '') + (h.profitPercent * 100).toFixed(2) + '%' : '...'}
-                        </td>
-                        <td>${h.riskScore ? h.riskScore.toFixed(0) : '...'}</td>
+                        <td colspan="7" style="text-align: center;">Нет истории сделок</td>
                     </tr>
-                    `).join('')}
                 </tbody>
             </table>
         </div>
@@ -1271,7 +1285,7 @@ const createIndexHtml = () => {
         <h2>Лог философского анализа</h2>
         <div class="analysis-log" id="analysisLog">
             <div class="log-entry">
-                <div class="log-time">[${new Date().toLocaleTimeString()}]</div>
+                <div class="log-time">[12:00:00]</div>
                 <div>Система запущена. Готов к анализу рынка с использованием официального BingX API.</div>
             </div>
         </div>
@@ -1324,7 +1338,12 @@ const createIndexHtml = () => {
             fetch('/api/status')
                 .then(response => response.json())
                 .then(data => {
-                    document.getElementById('balance').textContent = '$' + data.balance.toFixed(2);
+                    // Определяем, какой баланс показывать
+                    const displayBalance = data.isRealMode ? (data.realBalance || 0) : data.balance;
+                    const balanceModeText = data.isRealMode ? 'Реальный баланс' : 'Демо-баланс';
+                    
+                    document.getElementById('balance').textContent = '$' + displayBalance.toFixed(2);
+                    document.getElementById('balanceMode').textContent = balanceModeText;
                     document.getElementById('tradeMode').textContent = data.tradeMode;
                     document.getElementById('riskLevel').textContent = data.riskLevel;
                     document.getElementById('fearIndex').textContent = data.fearIndex;
@@ -1356,21 +1375,25 @@ const createIndexHtml = () => {
                     
                     // Обновляем историю
                     const historyBody = document.getElementById('historyBody');
-                    historyBody.innerHTML = data.history.slice(-10).map(h => {
-                        return \`
-                        <tr>
-                            <td>\${h.timestamp}</td>
-                            <td>\${h.coin}</td>
-                            <td>\${h.type}</td>
-                            <td>$\${h.entryPrice ? h.entryPrice.toFixed(4) : '...'}</td>
-                            <td>$\${h.exitPrice ? h.exitPrice.toFixed(4) : '...'}</td>
-                            <td class="\${h.profitPercent > 0 ? 'profit' : 'loss'}">
-                                \${h.profitPercent ? (h.profitPercent > 0 ? '+' : '') + (h.profitPercent * 100).toFixed(2) + '%' : '...'}
-                            </td>
-                            <td>\${h.riskScore ? h.riskScore.toFixed(0) : '...'}</td>
-                        </tr>
-                        \`;
-                    }).join('');
+                    if (data.history.length > 0) {
+                        historyBody.innerHTML = data.history.slice(-10).map(h => {
+                            return \`
+                            <tr>
+                                <td>\${h.timestamp}</td>
+                                <td>\${h.coin}</td>
+                                <td>\${h.type}</td>
+                                <td>$\${h.entryPrice ? h.entryPrice.toFixed(4) : '...'}</td>
+                                <td>$\${h.exitPrice ? h.exitPrice.toFixed(4) : '...'}</td>
+                                <td class="\${h.profitPercent > 0 ? 'profit' : 'loss'}">
+                                    \${h.profitPercent ? (h.profitPercent > 0 ? '+' : '') + (h.profitPercent * 100).toFixed(2) + '%' : '...'}
+                                </td>
+                                <td>\${h.riskScore ? h.riskScore.toFixed(0) : '...'}</td>
+                            </tr>
+                            \`;
+                        }).join('');
+                    } else {
+                        historyBody.innerHTML = '<tr><td colspan="7" style="text-align: center;">Нет истории сделок</td></tr>';
+                    }
                     
                     // Добавляем новые записи в лог анализа
                     const analysisLog = document.getElementById('analysisLog');
@@ -1478,7 +1501,7 @@ app.get('/login', (req, res) => {
     <body>
       <div class="login-form">
         <div class="logo">Философ Рынка</div>
-        <h2>Торговый Бот v4.2</h2>
+        <h2>Торговый Бот v4.3</h2>
         <form id="loginForm">
           <input type="password" name="password" placeholder="Введите пароль" required>
           <button type="submit">Войти в систему</button>
@@ -1525,8 +1548,8 @@ app.get('/logout', (req, res) => {
 
 // API эндпоинты
 app.post('/toggle-mode', (req, res) => {
-  toggleMode();
-  res.json({ success: true });
+  const newMode = toggleMode();
+  res.json({ success: true, isRealMode: newMode });
 });
 
 app.post('/toggle-trade-mode', (req, res) => {
@@ -1544,7 +1567,9 @@ app.get('/api/status', (req, res) => {
   const openPositions = Object.values(globalState.positions).filter(p => p !== null);
   
   res.json({
-    balance: globalState.isRealMode ? (globalState.realBalance || 0) : globalState.balance,
+    balance: globalState.balance,
+    realBalance: globalState.realBalance,
+    isRealMode: globalState.isRealMode,
     tradeMode: globalState.tradeMode,
     riskLevel: globalState.riskLevel,
     fearIndex: globalState.fearIndex,
@@ -1557,10 +1582,10 @@ app.get('/api/status', (req, res) => {
 });
 
 // ==========================
-// ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА (СОГЛАСНО ДОКУМЕНТАЦИИ BINGX)
+// ГЛАВНАЯ ФУНКЦИЯ — ЦИКЛ БОТА
 // ==========================
 (async () => {
-  console.log('🤖 ЗАПУСК ТОРГОВОГО БОТА (ОФИЦИАЛЬНОЕ BINGX API)');
+  console.log('🤖 ЗАПУСК ТОРГОВОГО БОТА (ИСПРАВЛЕННАЯ ВЕРСИЯ BINGX API)');
   console.log('🔑 API-ключи: ' + (BINGX_API_KEY ? 'ЗАДАНЫ' : 'НЕ ЗАДАНЫ'));
   console.log('🔐 Секретный ключ: ' + (BINGX_SECRET_KEY ? 'ЗАДАН' : 'НЕ ЗАДАН'));
   
@@ -1674,5 +1699,4 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
   console.log(`🌐 Доступ к интерфейсу: http://localhost:${PORT}`);
   console.log(`🔐 Пароль для входа: ${APP_PASSWORD}`);
-  console.log(`📚 Используется официальная документация BingX API`);
 });
