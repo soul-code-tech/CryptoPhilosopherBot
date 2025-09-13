@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const axios = require('axios');
 const CryptoJS = require('crypto-js');
+const cookieParser = require('cookie-parser');
 
 // ==========================
 // ГЛОБАЛЬНОЕ СОСТОЯНИЕ
@@ -29,13 +30,16 @@ let globalState = {
     consecutiveTrades: {},
     volatilityHistory: {},
     fearSentimentHistory: [],
-    fundamentalData: {}
+    // Убрано: fundamentalData, так как BingX не предоставляет фундаментальные данные
   },
   isRunning: true,
   takerFee: 0.0005,
   makerFee: 0.0002,
   maxRiskPerTrade: 0.01,
   maxLeverage: 3,
+  // ==========================
+  // ОБНОВЛЕННЫЙ СПИСОК: 30+ монет (используем только символы, поддерживаемые BingX)
+  // ==========================
   watchlist: [
     { symbol: 'BTC-USD', name: 'bitcoin' },
     { symbol: 'ETH-USD', name: 'ethereum' },
@@ -56,7 +60,35 @@ let globalState = {
     { symbol: 'ALGO-USD', name: 'algorand' },
     { symbol: 'NEAR-USD', name: 'near' },
     { symbol: 'SUSHI-USD', name: 'sushi' },
-    { symbol: 'MKR-USD', name: 'maker' }
+    { symbol: 'MKR-USD', name: 'maker' },
+    // --- 10 новых монет ---
+    { symbol: 'BNB-USD', name: 'binancecoin' },
+    { symbol: 'TRX-USD', name: 'tron' },
+    { symbol: 'ETC-USD', name: 'ethereum-classic' },
+    { symbol: 'ICP-USD', name: 'internet-computer' },
+    { symbol: 'APT-USD', name: 'aptos' },
+    { symbol: 'ARB-USD', name: 'arbitrum' },
+    { symbol: 'OP-USD', name: 'optimism' },
+    { symbol: 'TON-USD', name: 'the-open-network' },
+    { symbol: 'SHIB-USD', name: 'shiba-inu' },
+    { symbol: 'PEPE-USD', name: 'pepe' },
+    // --- еще 10 новых монет ---
+    { symbol: 'RUNE-USD', name: 'thorchain' },
+    { symbol: 'INJ-USD', name: 'injective-protocol' },
+    { symbol: 'WLD-USD', name: 'worldcoin' },
+    { symbol: 'SEI-USD', name: 'sei-network' },
+    { symbol: 'TIA-USD', name: 'celestia' },
+    { symbol: 'ONDO-USD', name: 'ondo-finance' },
+    { symbol: 'JUP-USD', name: 'jupiter-exchange-solana' },
+    { symbol: 'STRK-USD', name: 'starknet' },
+    { symbol: 'ENA-USD', name: 'ethena' },
+    { symbol: 'RENDER-USD', name: 'render-token' },
+    // --- еще 5 монет для надежности ---
+    { symbol: 'XLM-USD', name: 'stellar' },
+    { symbol: 'VET-USD', name: 'vechain' },
+    { symbol: 'HBAR-USD', name: 'hedera-hashgraph' },
+    { symbol: 'FLOW-USD', name: 'flow' },
+    { symbol: 'GRT-USD', name: 'the-graph' }
   ],
   isRealMode: false,
   tradeMode: 'adaptive',
@@ -64,7 +96,7 @@ let globalState = {
   currentPrices: {},
   fearIndex: 50,
   bingxCache: {},
-  fundamentalCache: {}
+  // Убрано: fundamentalCache, так как не используется
 };
 
 globalState.watchlist.forEach(coin => {
@@ -72,10 +104,7 @@ globalState.watchlist.forEach(coin => {
   globalState.marketMemory.lastTrades[coin.name] = [];
   globalState.marketMemory.consecutiveTrades[coin.name] = 0;
   globalState.marketMemory.volatilityHistory[coin.name] = [];
-  globalState.marketMemory.fundamentalData[coin.name] = {
-    developerActivity: null,
-    socialSentiment: null
-  };
+  // Убрано: globalState.marketMemory.fundamentalData[coin.name], так как не используется
 });
 
 // ==========================
@@ -83,20 +112,30 @@ globalState.watchlist.forEach(coin => {
 // ==========================
 const BINGX_API_KEY = process.env.BINGX_API_KEY;
 const BINGX_SECRET_KEY = process.env.BINGX_SECRET_KEY;
+// ИСПРАВЛЕНО: Убраны лишние пробелы в URL
 const BINGX_FUTURES_URL = process.env.BINGX_API_DOMAIN || 'https://open-api.bingx.com';
-const APP_PASSWORD = process.env.APP_PASSWORD || 'admin123'; // ✅ ЗАДАЁТЕ В RENDER
+const APP_PASSWORD = process.env.APP_PASSWORD || 'admin123';
 
 // ==========================
-// ФУНКЦИЯ: Подпись запроса для BingX
+// ФУНКЦИЯ: Подпись запроса для BingX (обновленная)
 // ==========================
 function signBingXRequest(params) {
+  // ИСПРАВЛЕНО: Создаем строку параметров в порядке их добавления, как в примерах BingX
+  // Удаляем служебные параметры
   const cleanParams = { ...params };
   delete cleanParams.signature;
   delete cleanParams.recvWindow;
 
-  const sortedKeys = Object.keys(cleanParams).sort();
-  const sortedParams = sortedKeys.map(key => `${key}=${cleanParams[key]}`).join('&');
-  return CryptoJS.HmacSHA256(sortedParams, BINGX_SECRET_KEY).toString(CryptoJS.enc.Hex);
+  // Формируем строку параметров
+  let paramString = "";
+  for (const key in cleanParams) {
+    if (paramString !== "") {
+      paramString += "&";
+    }
+    paramString += `${key}=${cleanParams[key]}`;
+  }
+  
+  return CryptoJS.HmacSHA256(paramString, BINGX_SECRET_KEY).toString(CryptoJS.enc.Hex);
 }
 
 // ==========================
@@ -135,6 +174,7 @@ async function getBingXRealBalance() {
     const timestamp = Date.now();
     const params = { timestamp, recvWindow: 5000 };
     const signature = signBingXRequest(params);
+    // ИСПРАВЛЕНО: Правильный формат URL
     const url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/user/balance?timestamp=${timestamp}&recvWindow=5000&signature=${signature}`;
 
     console.log('🌐 [БАЛАНС] Отправляю запрос:', url);
@@ -181,7 +221,8 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
     };
 
     const signature = signBingXRequest(params);
-    const url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/market/klines?symbol=${params.symbol}&interval=${params.interval}&limit=${params.limit}&timestamp=${params.timestamp}&recvWindow=5000&signature=${signature}`;
+    // ИСПРАВЛЕНО: Правильный формат URL для klines
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/quote/klines?symbol=${params.symbol}&interval=${params.interval}&limit=${params.limit}&timestamp=${params.timestamp}&signature=${signature}`;
 
     console.log(`🌐 Получение истории для ${symbol}: GET ${url}`);
 
@@ -190,6 +231,7 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
       timeout: 10000
     });
 
+    // BingX возвращает данные в поле 'data', а свечи в 'data'
     if (response.data.code === 0 && Array.isArray(response.data.data)) {
       return response.data.data.map(candle => ({
         time: candle[0],
@@ -225,7 +267,8 @@ async function getCurrentPrices() {
       };
 
       const signature = signBingXRequest(params);
-      const url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/market/ticker?symbol=${params.symbol}&timestamp=${params.timestamp}&recvWindow=5000&signature=${signature}`;
+      // ИСПРАВЛЕНО: Правильный эндпоинт для получения цены тикера
+      const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/quote/price?symbol=${params.symbol}&timestamp=${params.timestamp}&signature=${signature}`;
 
       console.log(`🌐 Получение цены для ${coin.symbol}: GET ${url}`);
 
@@ -237,7 +280,7 @@ async function getCurrentPrices() {
 
         if (response.data.code === 0 && response.data.data && response.data.data.price) {
           const price = parseFloat(response.data.data.price);
-          const cleanSymbol = coin.name; // Используем имя монеты как ключ (bitcoin, ethereum)
+          const cleanSymbol = coin.name;
           prices[cleanSymbol] = price;
           console.log(`✅ Цена для ${coin.symbol}: $${price}`);
         } else {
@@ -247,7 +290,8 @@ async function getCurrentPrices() {
         console.error(`❌ Не удалось получить цену для ${coin.symbol}:`, error.message);
       }
 
-      await new Promise(r => setTimeout(r, 2000));
+      // Задержка между запросами, чтобы не превысить лимиты
+      await new Promise(r => setTimeout(r, 500));
     }
 
     globalState.currentPrices = prices;
@@ -271,14 +315,15 @@ async function setBingXLeverage(symbol, leverage) {
     const timestamp = Date.now();
     const params = {
       symbol: symbol,
-      side: 'LONG',
+      side: 'LONG', // Можно установить и для SHORT, но обычно плечо устанавливается для обеих сторон
       leverage: leverage.toString(),
       timestamp,
       recvWindow: 5000
     };
 
     const signature = signBingXRequest(params);
-    const url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/trade/leverage?symbol=${params.symbol}&side=LONG&leverage=${params.leverage}&timestamp=${params.timestamp}&recvWindow=5000&signature=${signature}`;
+    // ИСПРАВЛЕНО: Правильный формат URL для POST запроса (параметры в URL)
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/trade/leverage?symbol=${params.symbol}&side=${params.side}&leverage=${params.leverage}&timestamp=${params.timestamp}&signature=${signature}`;
 
     const response = await axios.post(url, null, {
       headers: { 'X-BX-APIKEY': BINGX_API_KEY, 'Content-Type': 'application/json' },
@@ -308,6 +353,7 @@ async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null
       return { orderId: `fake_${Date.now()}` };
     }
 
+    // Устанавливаем плечо перед размещением ордера
     const leverageSet = await setBingXLeverage(symbol, leverage);
     if (!leverageSet) return null;
 
@@ -322,14 +368,14 @@ async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null
       recvWindow: 5000
     };
 
-    if (price && type === 'LIMIT') {
+    if (price && (type === 'LIMIT' || type === 'TAKE_PROFIT' || type === 'STOP')) {
       params.price = price.toFixed(8);
     }
 
     const signature = signBingXRequest(params);
-    let url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/trade/order?symbol=${params.symbol}&side=${params.side}&type=${params.type}&quantity=${params.quantity}&timestamp=${params.timestamp}&positionSide=${params.positionSide}&recvWindow=5000&signature=${signature}`;
+    let url = `${BINGX_FUTURES_URL}/openApi/swap/v2/trade/order?symbol=${params.symbol}&side=${params.side}&type=${params.type}&quantity=${params.quantity}&timestamp=${params.timestamp}&positionSide=${params.positionSide}&signature=${signature}`;
 
-    if (price && type === 'LIMIT') {
+    if (price && (type === 'LIMIT' || type === 'TAKE_PROFIT' || type === 'STOP')) {
       url += `&price=${price.toFixed(8)}`;
     }
 
@@ -424,63 +470,18 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
 // ФУНКЦИЯ: Расчет рисковой оценки
 // ==========================
 function calculateRiskScore(coin) {
-  const fundamentalData = globalState.marketMemory.fundamentalData[coin];
+  // УПРОЩЕНО: Убраны фундаментальные данные, так как они не доступны через BingX
   const volatility = globalState.marketMemory.volatilityHistory[coin][globalState.marketMemory.volatilityHistory[coin].length - 1] || 0.02;
   let riskScore = 50;
+  
   if (volatility > 0.05) riskScore += 20;
   if (volatility < 0.02) riskScore -= 10;
-  if (fundamentalData && fundamentalData.developerActivity) {
-    if (fundamentalData.developerActivity > 100) riskScore -= 15;
-    else if (fundamentalData.developerActivity < 20) riskScore += 25;
-  }
+  
+  // Используем только индекс страха
   if (globalState.fearIndex < 30) riskScore -= 15;
   else if (globalState.fearIndex > 70) riskScore += 15;
+  
   return Math.max(0, Math.min(100, riskScore));
-}
-
-// ==========================
-// ФУНКЦИЯ: Получение фундаментальных данных
-// ==========================
-async function getFundamentalData(coin) {
-  const now = Date.now();
-  const cacheKey = coin.name;
-  const cacheDuration = 300000;
-
-  if (globalState.fundamentalCache[cacheKey] && now - globalState.fundamentalCache[cacheKey].timestamp < cacheDuration) {
-    console.log(`💾 Кэш для ${coin.name}`);
-    return globalState.fundamentalCache[cacheKey].data;
-  }
-
-  try {
-    const response = await axios.get(`https://api.coingecko.com/api/v3/coins/${coin.name}`, {
-      params: {
-        localization: false,
-        tickers: false,
-        market_data: true,
-        community_data: true,
-        developer_data: true
-      },
-      timeout: 10000
-    });
-
-    const data = response.data;
-    const fundamentalData = {
-      developerActivity: data.developer_data?.commits_30d || 0,
-      socialSentiment: data.market_data?.sentiment_votes_up_percentage || 50
-    };
-
-    globalState.fundamentalCache[cacheKey] = { fundamentalData, timestamp: now };
-    globalState.marketMemory.fundamentalData[coin.name] = fundamentalData;
-
-    await new Promise(r => setTimeout(r, 10000)); // ❗ 10 сек — чтобы избежать 429
-    return fundamentalData;
-  } catch (error) {
-    console.error(`❌ Ошибка для ${coin.name}:`, error.message);
-    if (globalState.fundamentalCache[cacheKey]) {
-      return globalState.fundamentalCache[cacheKey].data;
-    }
-    return null;
-  }
 }
 
 // ==========================
@@ -563,9 +564,12 @@ function setRiskLevel(level) {
 // ==========================
 function analyzeMarketWithAdaptiveStrategy(candles, coinName) {
   if (candles.length < 50) return null;
+  
+  // Простой анализ: если текущая цена выше цены 5 свечей назад - LONG, иначе SHORT
   const close = candles[candles.length - 1].close;
-  const prevClose = candles[candles.length - 2].close;
-  const direction = close > prevClose ? 'LONG' : 'SHORT';
+  const prevClose5 = candles[candles.length - 6]?.close || candles[0].close;
+  const direction = close > prevClose5 ? 'LONG' : 'SHORT';
+  
   return {
     coin: coinName,
     currentPrice: close,
@@ -573,7 +577,7 @@ function analyzeMarketWithAdaptiveStrategy(candles, coinName) {
       direction,
       confidence: 0.6,
       leverage: globalState.maxLeverage,
-      reasoning: [`📈 Цена ${direction === 'LONG' ? 'выше' : 'ниже'} предыдущей`]
+      reasoning: [`📈 Цена ${direction === 'LONG' ? 'выше' : 'ниже'} цены 5 свечей назад`]
     }
   };
 }
@@ -591,6 +595,7 @@ async function checkOpenPositions(currentPrices) {
       ? (currentPrice - position.entryPrice) / position.entryPrice
       : (position.entryPrice - currentPrice) / position.entryPrice;
 
+    // Закрываем позицию при прибыли 2% или убытке 1%
     if (profitPercent > 0.02 || profitPercent < -0.01) {
       console.log(`✅ ЗАКРЫТИЕ: ${position.type} ${coin.name} — прибыль ${profitPercent > 0 ? '+' : ''}${(profitPercent * 100).toFixed(2)}%`);
       position.status = 'CLOSED';
@@ -604,24 +609,27 @@ async function checkOpenPositions(currentPrices) {
 }
 
 // ==========================
-// HTTP-сервер
+// HTTP-сервер с паролем
 // ==========================
 const app = express();
 const PORT = process.env.PORT || 10000;
 
+// Добавляем cookie-parser для работы с куками
+app.use(cookieParser());
+app.use(cors());
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 // Middleware для аутентификации
 function authenticate(req, res, next) {
-  if (req.path === '/login' || req.path === '/favicon.ico' || req.path === '/login.css') {
+  if (req.path === '/login' || req.path === '/favicon.ico') {
     return next();
   }
   if (req.cookies.authToken) return next();
   res.redirect('/login');
 }
 
-app.use(cors());
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 app.use(authenticate);
 
 app.get('/login', (req, res) => {
@@ -718,8 +726,8 @@ app.get('/', (req, res) => {
         <h1>Торговый Бот</h1>
         
         <div class="stat-card">
-          <div class="stat-value">$${globalState.balance.toFixed(2)}</div>
-          <div class="stat-label">Демо-баланс</div>
+          <div class="stat-value">$${(globalState.isRealMode ? (globalState.realBalance || 0) : globalState.balance).toFixed(2)}</div>
+          <div class="stat-label">${globalState.isRealMode ? 'Реальный баланс' : 'Демо-баланс'}</div>
         </div>
         
         <div class="stat-card">
@@ -748,7 +756,7 @@ app.get('/', (req, res) => {
                 <td>${h.timestamp}</td>
                 <td>${h.coin}</td>
                 <td>${h.type}</td>
-                <td style="color: ${h.profitPercent > 0 ? 'green' : 'red'}">${h.profitPercent > 0 ? '+' : ''}${(h.profitPercent * 100).toFixed(2)}%</td>
+                <td style="color: ${h.profitPercent > 0 ? 'green' : 'red'}">${h.profitPercent ? (h.profitPercent > 0 ? '+' : '') + (h.profitPercent * 100).toFixed(2) + '%' : '...'}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -793,17 +801,13 @@ app.post('/toggle-trade-mode', (req, res) => {
       const fearIndex = await getFearAndGreedIndex();
       console.log(`😱 Индекс страха: ${fearIndex}`);
 
-      if (Date.now() % 300000 < 10000) {
+      // Обновляем баланс каждые 5 минут
+      if (Date.now() % 300000 < 10000 && globalState.isRealMode) {
         await forceUpdateRealBalance();
       }
 
       const currentPrices = await getCurrentPrices();
       globalState.currentPrices = currentPrices;
-
-      // Получаем фундаментальные данные
-      for (const coin of globalState.watchlist) {
-        await getFundamentalData(coin);
-      }
 
       await checkOpenPositions(currentPrices);
 
@@ -816,6 +820,17 @@ app.post('/toggle-trade-mode', (req, res) => {
         if (candles.length < 50) {
           console.log(`   ⚠️ Пропускаем ${coin.name} — недостаточно данных`);
           continue;
+        }
+
+        // Рассчитываем волатильность для рисковой оценки
+        const prices = candles.map(c => c.close);
+        const avgPrice = prices.reduce((sum, p) => sum + p, 0) / prices.length;
+        const volatility = Math.sqrt(prices.reduce((sum, p) => sum + Math.pow(p - avgPrice, 2), 0) / prices.length) / avgPrice;
+        
+        // Сохраняем историю волатильности
+        globalState.marketMemory.volatilityHistory[coin.name].push(volatility);
+        if (globalState.marketMemory.volatilityHistory[coin.name].length > 24) {
+          globalState.marketMemory.volatilityHistory[coin.name].shift();
         }
 
         const analysis = analyzeMarketWithAdaptiveStrategy(candles, coin.name);
@@ -836,7 +851,7 @@ app.post('/toggle-trade-mode', (req, res) => {
 
         console.log(`\n🟢 ВХОД: ${bestOpportunity.signal.direction} ${finalSize.toFixed(6)} ${bestOpportunity.coin} с плечом ${bestOpportunity.signal.leverage}x`);
         await openFuturesTrade(
-          bestOpportunity.coin,
+          {symbol: bestOpportunity.coin.toUpperCase() + '-USD', name: bestOpportunity.coin},
           bestOpportunity.signal.direction,
           bestOpportunity.signal.leverage,
           finalSize,
