@@ -1326,8 +1326,7 @@ global.balance = () => globalState.balance;
 global.stats = () => globalState.stats;
 global.history = () => globalState.history;
 
-console.log('
-✅ Трейдинг Бот Вася 3000 Уникальный запущен!');
+console.log('\n✅ Трейдинг Бот Вася 3000 Уникальный запущен!');
 console.log('❗ ВАЖНО: Для торговли на реальном счете переведите USDT на фьючерсный счет в интерфейсе BingX.');
 console.log('Используй toggleMode() для переключения между ДЕМО и РЕАЛЬНЫМ режимом.');
 console.log('Используй toggleTradeMode() для переключения между адаптивным, скальпинг и свинг режимами.');
