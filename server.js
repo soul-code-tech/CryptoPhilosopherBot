@@ -39,10 +39,26 @@ let globalState = {
   maxRiskPerTrade: 0.01,  // 1% от депозита по умолчанию
   maxLeverage: 3,         // 3x плечо
   watchlist: [
-    { symbol: 'BTC-USD', name: 'bitcoin' },
-    { symbol: 'ETH-USD', name: 'ethereum' },
-    { symbol: 'SOL-USD', name: 'solana' },
-    { symbol: 'XRP-USD', name: 'ripple' }
+    { symbol: 'BTCUSD', name: 'bitcoin' },
+    { symbol: 'ETHUSD', name: 'ethereum' },
+    { symbol: 'SOLUSD', name: 'solana' },
+    { symbol: 'XRPUSD', name: 'ripple' },
+    { symbol: 'ADAUSD', name: 'cardano' },
+    { symbol: 'DOTUSD', name: 'polkadot' },
+    { symbol: 'DOGEUSD', name: 'dogecoin' },
+    { symbol: 'MATICUSD', name: 'polygon' },
+    { symbol: 'LTCUSD', name: 'litecoin' },
+    { symbol: 'BCHUSD', name: 'bitcoin-cash' },
+    { symbol: 'UNIUSD', name: 'uniswap' },
+    { symbol: 'LINKUSD', name: 'chainlink' },
+    { symbol: 'AAVEUSD', name: 'aave' },
+    { symbol: 'AVAXUSD', name: 'avalanche' },
+    { symbol: 'ATOMUSD', name: 'cosmos' },
+    { symbol: 'FILUSD', name: 'filecoin' },
+    { symbol: 'ALGOUSD', name: 'algorand' },
+    { symbol: 'NEARUSD', name: 'near' },
+    { symbol: 'SUSHIUSD', name: 'sushi' },
+    { symbol: 'MKRUSD', name: 'maker' }
   ],
   isRealMode: false, // false = демо, true = реальный режим
   tradeMode: 'adaptive', // 'adaptive' (адаптивный режим), 'scalping', 'swing'
@@ -203,7 +219,7 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
   try {
     const timestamp = Date.now();
     const params = {
-      symbol: symbol,
+      symbol: symbol, // ✅ Уже в правильном формате: BTCUSD, ETHUSD
       interval,
       limit,
       timestamp,
@@ -255,7 +271,7 @@ async function getCurrentPrices() {
     for (const coin of globalState.watchlist) {
       const timestamp = Date.now();
       const params = {
-        symbol: coin.symbol,
+        symbol: coin.symbol, // ✅ Уже в правильном формате: BTCUSD, ETHUSD
         timestamp,
         recvWindow: 5000
       };
@@ -271,7 +287,7 @@ async function getCurrentPrices() {
         
         if (response.code === 0 && response.data && response.data.price) {
           const price = parseFloat(response.data.price);
-          const cleanSymbol = coin.symbol.replace('-USD', '').toLowerCase();
+          const cleanSymbol = coin.name; // Используем имя монеты как ключ (bitcoin, ethereum и т.д.)
           prices[cleanSymbol] = price;
           console.log(`✅ Цена для ${coin.symbol}: $${price}`);
         } else {
@@ -305,7 +321,7 @@ async function setBingXLeverage(symbol, leverage) {
     
     const timestamp = Date.now();
     const params = {
-      symbol: symbol,
+      symbol: symbol, // ✅ Уже в правильном формате: BTCUSD, ETHUSD
       side: 'LONG',
       leverage: leverage.toString(),
       timestamp,
@@ -357,7 +373,7 @@ async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null
     
     const timestamp = Date.now();
     const params = {
-      symbol: symbol,
+      symbol: symbol, // ✅ Уже в правильном формате: BTCUSD, ETHUSD
       side: side,
       type: type,
       quantity: quantity.toFixed(6),
@@ -884,19 +900,9 @@ async function getFundamentalData(coin) {
     });
     const data = response.data;
     const fundamentalData = {
-      hashRate: null,
-      activeAddresses: null,
-      transactions: null,
-      developerActivity: null,
-      socialSentiment: null
+      developerActivity: data.developer_data?.commits_30d || 0,
+      socialSentiment: data.market_data?.sentiment_votes_up_percentage || 50
     };
-    if (data.market_data) {
-      fundamentalData.socialSentiment = data.market_data.sentiment_votes_up_percentage || 50;
-    }
-    if (data.developer_data) {
-      fundamentalData.developerActivity = data.developer_data.commits_30d || 0;
-    }
-    // ❌ УБРАНО: НЕ ПЕРЕЗАПИСЫВАЕМ через twitter_followers!
     globalState.fundamentalCache[cacheKey] = {
       fundamentalData,
       timestamp: now
@@ -1004,7 +1010,7 @@ async function testBingXAPI() {
     const size = riskAmount / stopDistance;
     console.log(`🧪 [ТЕСТ] Открываем тестовую позицию LONG с риском 30% от баланса: $${riskAmount.toFixed(2)}`);
     const result = await placeBingXFuturesOrder(
-      'BTC-USD',
+      'BTCUSD',
       'BUY',
       'MARKET',
       size,
