@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Философ Рынка — Торговый Бот v4.4</title>
+    <title>Философ Рынка — Торговый Бот v5.1</title>
     <style>
         :root {
             --primary: #3498db;
@@ -324,36 +324,41 @@
             background: #95a5a6;
         }
         
-        .logout-btn {
-            position: absolute;
+        /* Стиль для уведомлений */
+        .notification {
+            position: fixed;
             top: 20px;
             right: 20px;
-            background: var(--danger);
+            padding: 15px 25px;
+            border-radius: 10px;
             color: white;
-            border: none;
-            padding: 10px 18px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 0.9rem;
             font-weight: 600;
-            box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            z-index: 1000;
+            animation: slideIn 0.3s ease-out, fadeOut 0.5s ease-out 2.5s forwards;
+            max-width: 350px;
         }
         
-        .logout-btn:hover {
-            background: #c0392b;
-            transform: translateY(-2px);
+        .notification-success {
+            background: var(--success);
         }
         
-        .loading {
-            color: #95a5a6;
-            font-style: italic;
-            text-align: center;
-            padding: 20px;
+        .notification-error {
+            background: var(--danger);
         }
         
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+        .notification-info {
+            background: var(--primary);
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
         }
         
         @media (max-width: 768px) {
@@ -387,11 +392,9 @@
     </style>
 </head>
 <body>
-    <button class="logout-btn" onclick="logout()">Выйти</button>
-    
     <div class="container">
         <header>
-            <h1>Философ Рынка — Торговый Бот v4.4</h1>
+            <h1>Философ Рынка — Торговый Бот v5.1</h1>
             <p class="subtitle">Система принятия решений на основе фундаментального и технического анализа</p>
         </header>
         
@@ -462,12 +465,13 @@
                         <th>Цена входа</th>
                         <th>Текущая цена</th>
                         <th>Прибыль/Убыток</th>
+                        <th>Комиссия</th>
                         <th>Риск</th>
                     </tr>
                 </thead>
                 <tbody id="positionsBody">
                     <tr>
-                        <td colspan="7" style="text-align: center; color: #95a5a6;">Нет открытых позиций</td>
+                        <td colspan="8" style="text-align: center; color: #95a5a6;">Нет открытых позиций</td>
                     </tr>
                 </tbody>
             </table>
@@ -484,12 +488,13 @@
                         <th>Цена входа</th>
                         <th>Цена выхода</th>
                         <th>Прибыль</th>
+                        <th>Комиссия</th>
                         <th>Риск</th>
                     </tr>
                 </thead>
                 <tbody id="historyBody">
                     <tr>
-                        <td colspan="7" style="text-align: center; color: #95a5a6;">Нет истории сделок</td>
+                        <td colspan="8" style="text-align: center; color: #95a5a6;">Нет истории сделок</td>
                     </tr>
                 </tbody>
             </table>
@@ -514,176 +519,267 @@
     </div>
 
     <script>
-        function toggleMode() {
-            fetch('/toggle-mode', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        updateUI();
-                    }
-                });
+        // ==========================
+        // КОНФИГУРАЦИЯ
+        // ==========================
+        // ЗАМЕНИТЕ ЭТИ ЗНАЧЕНИЯ НА ВАШИ РЕАЛЬНЫЕ ДАННЫЕ!
+        const BOT_API_URL = 'http://YOUR_SERVER_IP_OR_DOMAIN:3000'; // Например: 'http://123.45.67.89:3000'
+        const API_SECRET_TOKEN = 'my_default_super_secret_token'; // Должен совпадать с API_SECRET_TOKEN в .env на сервере
+
+        // Функция для создания заголовков с аутентификацией
+        function getAuthHeaders() {
+            return {
+                'Authorization': `Bearer ${API_SECRET_TOKEN}`,
+                'Content-Type': 'application/json'
+            };
         }
-        
-        function toggleTradeMode() {
-            fetch('/toggle-trade-mode', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        updateUI();
-                    }
-                });
-        }
-        
-        function setRiskLevel(level) {
-            fetch('/set-risk-level', { 
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ level: level })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    updateUI();
-                }
-            });
-        }
-        
-        function logout() {
-            fetch('/logout', { method: 'GET' })
-                .then(() => {
-                    window.location.href = '/login';
-                });
-        }
-        
-        // Обновляем интерфейс данными из API
-        function updateUI() {
-            fetch('/api/status')
-                .then(response => response.json())
-                .then(data => {
-                    // Баланс и режим
-                    const displayBalance = data.isRealMode ? (data.realBalance || 0) : data.balance;
-                    const balanceModeText = data.isRealMode ? 'Реальный баланс' : 'Демо-баланс';
-                    const modeBadgeText = data.isRealMode ? 'РЕАЛ' : 'ДЕМО';
-                    
-                    document.getElementById('balance').textContent = '$' + displayBalance.toFixed(2);
-                    document.getElementById('balanceMode').textContent = balanceModeText;
-                    document.getElementById('modeBadge').textContent = modeBadgeText;
-                    document.getElementById('modeBadge').className = 'status-badge ' + (data.isRealMode ? 'status-real' : 'status-demo');
-                    
-                    // Статистика
-                    document.getElementById('tradeMode').textContent = data.tradeMode;
-                    document.getElementById('riskLevel').textContent = data.riskLevel;
-                    document.getElementById('fearIndex').textContent = data.fearIndex;
-                    document.getElementById('totalTrades').textContent = data.stats.totalTrades;
-                    document.getElementById('profitableTrades').textContent = data.stats.profitableTrades;
-                    document.getElementById('losingTrades').textContent = data.stats.losingTrades;
-                    document.getElementById('winRate').textContent = data.stats.winRate.toFixed(1) + '%';
-                    
-                    // Открытые позиции
-                    const positionsBody = document.getElementById('positionsBody');
-                    if (data.openPositions.length > 0) {
-                        positionsBody.innerHTML = data.openPositions.map(pos => {
-                            const currentPrice = data.currentPrices[pos.coin] || 0;
-                            const profitPercent = pos.type === 'LONG' 
-                                ? (currentPrice - pos.entryPrice) / pos.entryPrice
-                                : (pos.entryPrice - currentPrice) / pos.entryPrice;
-                            const profitClass = profitPercent > 0 ? 'profit' : 'loss';
-                            
-                            return `
-                            <tr>
-                                <td>${pos.coin}</td>
-                                <td>${pos.type}</td>
-                                <td>${pos.size.toFixed(6)}</td>
-                                <td>$${pos.entryPrice.toFixed(4)}</td>
-                                <td>$${currentPrice.toFixed(4)}</td>
-                                <td class="${profitClass}">${(profitPercent * 100).toFixed(2)}%</td>
-                                <td>${pos.riskScore ? pos.riskScore.toFixed(0) : '...'}</td>
-                            </tr>
-                            `;
-                        }).join('');
-                    } else {
-                        positionsBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #95a5a6;">Нет открытых позиций</td></tr>';
-                    }
-                    
-                    // История сделок
-                    const historyBody = document.getElementById('historyBody');
-                    if (data.history.length > 0) {
-                        historyBody.innerHTML = data.history.slice(-10).map(h => {
-                            const profitClass = h.profitPercent > 0 ? 'profit' : 'loss';
-                            return `
-                            <tr>
-                                <td>${h.timestamp}</td>
-                                <td>${h.coin}</td>
-                                <td>${h.type}</td>
-                                <td>$${h.entryPrice ? h.entryPrice.toFixed(4) : '...'}</td>
-                                <td>$${h.exitPrice ? h.exitPrice.toFixed(4) : '...'}</td>
-                                <td class="${profitClass}">${h.profitPercent ? (h.profitPercent > 0 ? '+' : '') + (h.profitPercent * 100).toFixed(2) + '%' : '...'}</td>
-                                <td>${h.riskScore ? h.riskScore.toFixed(0) : '...'}</td>
-                            </tr>
-                            `;
-                        }).join('');
-                    } else {
-                        historyBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #95a5a6;">Нет истории сделок</td></tr>';
-                    }
-                    
-                    // Лог анализа
-                    const analysisLog = document.getElementById('analysisLog');
-                    if (data.lastAnalysis && data.lastAnalysis.length > 0) {
-                        // Очищаем старые записи, оставляем только последние 5
-                        analysisLog.innerHTML = '';
-                        data.lastAnalysis.slice(-5).forEach(analysis => {
-                            const logEntry = document.createElement('div');
-                            logEntry.className = 'log-entry';
-                            const confidence = (analysis.signal.confidence * 100).toFixed(1);
-                            logEntry.innerHTML = `
-                                <div class="log-time">[${new Date().toLocaleTimeString()}]</div>
-                                <div>
-                                    <span class="log-coin">${analysis.coin}</span>: 
-                                    <span class="log-signal ${analysis.signal.direction === 'LONG' ? 'log-buy' : 'log-sell'}">
-                                        ${analysis.signal.direction}
-                                    </span> 
-                                    <span class="log-confidence">${confidence}%</span>
-                                </div>
-                            `;
-                            analysisLog.insertBefore(logEntry, analysisLog.firstChild);
-                        });
-                    } else {
-                        // Если нет анализа, показываем "ожидание сигнала"
-                        if (analysisLog.children.length === 0) {
-                            const logEntry = document.createElement('div');
-                            logEntry.className = 'log-entry';
-                            logEntry.innerHTML = `
-                                <div class="log-time">[${new Date().toLocaleTimeString()}]</div>
-                                <div><span class="log-coin">Ожидание сигнала</span>: Анализируем рынок...</div>
-                            `;
-                            analysisLog.appendChild(logEntry);
+
+        // Функция для показа уведомлений
+        function showNotification(message, type = 'info') {
+            // Удаляем старые уведомления
+            const existing = document.querySelector('.notification');
+            if (existing) existing.remove();
+
+            const notification = document.createElement('div');
+            notification.className = `notification notification-${type}`;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+
+            // Автоматически удаляем через 3 секунды
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.style.opacity = '0';
+                    setTimeout(() => {
+                        if (notification.parentNode) {
+                            notification.remove();
                         }
-                    }
-                    
-                    // Добавляем уведомление о доступности цен
-                    const pricesAvailable = Object.keys(data.currentPrices).length > 0;
-                    if (!pricesAvailable && analysisLog.children.length === 0) {
+                    }, 500);
+                }
+            }, 3000);
+        }
+
+        // ==========================
+        // ФУНКЦИИ УПРАВЛЕНИЯ
+        // ==========================
+        async function toggleMode() {
+            try {
+                const response = await fetch(`${BOT_API_URL}/api/toggle-mode`, {
+                    method: 'POST',
+                    headers: getAuthHeaders()
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Ошибка ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    showNotification(data.message, 'success');
+                    updateUI();
+                } else {
+                    throw new Error(data.error || 'Неизвестная ошибка');
+                }
+            } catch (error) {
+                console.error('Ошибка:', error);
+                showNotification(`Ошибка: ${error.message}`, 'error');
+            }
+        }
+        
+        async function toggleTradeMode() {
+            try {
+                const response = await fetch(`${BOT_API_URL}/api/toggle-trade-mode`, {
+                    method: 'POST',
+                    headers: getAuthHeaders()
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Ошибка ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    showNotification(data.message, 'success');
+                    updateUI();
+                } else {
+                    throw new Error(data.error || 'Неизвестная ошибка');
+                }
+            } catch (error) {
+                console.error('Ошибка:', error);
+                showNotification(`Ошибка: ${error.message}`, 'error');
+            }
+        }
+        
+        async function setRiskLevel(level) {
+            try {
+                const response = await fetch(`${BOT_API_URL}/api/set-risk-level`, { 
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ level: level })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Ошибка ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    showNotification(data.message, 'success');
+                    updateUI();
+                } else {
+                    throw new Error(data.error || 'Неизвестная ошибка');
+                }
+            } catch (error) {
+                console.error('Ошибка:', error);
+                showNotification(`Ошибка: ${error.message}`, 'error');
+            }
+        }
+        
+        // ==========================
+        // ФУНКЦИЯ ОБНОВЛЕНИЯ ИНТЕРФЕЙСА
+        // ==========================
+        async function updateUI() {
+            try {
+                const response = await fetch(`${BOT_API_URL}/api/status`, {
+                    headers: getAuthHeaders()
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Ошибка ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                // Обновляем баланс и режим
+                const displayBalance = data.isRealMode ? (data.realBalance || 0) : data.balance;
+                const balanceModeText = data.isRealMode ? 'Реальный баланс' : 'Демо-баланс';
+                const modeBadgeText = data.isRealMode ? 'РЕАЛ' : 'ДЕМО';
+                
+                document.getElementById('balance').textContent = '$' + displayBalance.toFixed(2);
+                document.getElementById('balanceMode').textContent = balanceModeText;
+                document.getElementById('modeBadge').textContent = modeBadgeText;
+                document.getElementById('modeBadge').className = 'status-badge ' + (data.isRealMode ? 'status-real' : 'status-demo');
+                
+                // Обновляем статистику
+                document.getElementById('tradeMode').textContent = data.tradeMode;
+                document.getElementById('riskLevel').textContent = data.riskLevel;
+                document.getElementById('fearIndex').textContent = data.fearIndex;
+                document.getElementById('totalTrades').textContent = data.stats.totalTrades;
+                document.getElementById('profitableTrades').textContent = data.stats.profitableTrades;
+                document.getElementById('losingTrades').textContent = data.stats.losingTrades;
+                document.getElementById('winRate').textContent = data.stats.winRate.toFixed(1) + '%';
+                
+                // Обновляем открытые позиции
+                const positionsBody = document.getElementById('positionsBody');
+                if (data.openPositions && data.openPositions.length > 0) {
+                    positionsBody.innerHTML = data.openPositions.map(pos => {
+                        const currentPrice = data.currentPrices[pos.coin] || 0;
+                        const profitPercent = pos.type === 'LONG' 
+                            ? (currentPrice - pos.entryPrice) / pos.entryPrice
+                            : (pos.entryPrice - currentPrice) / pos.entryPrice;
+                        const profitClass = profitPercent > 0 ? 'profit' : 'loss';
+                        
+                        return `
+                        <tr>
+                            <td>${pos.coin}</td>
+                            <td>${pos.type}</td>
+                            <td>${pos.size.toFixed(6)}</td>
+                            <td>$${pos.entryPrice.toFixed(4)}</td>
+                            <td>$${currentPrice.toFixed(4)}</td>
+                            <td class="${profitClass}">${(profitPercent * 100).toFixed(2)}%</td>
+                            <td>$${pos.fee ? pos.fee.toFixed(4) : '0.0000'}</td>
+                            <td>${pos.riskScore ? pos.riskScore.toFixed(0) : '...'}</td>
+                        </tr>
+                        `;
+                    }).join('');
+                } else {
+                    positionsBody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #95a5a6;">Нет открытых позиций</td></tr>';
+                }
+                
+                // Обновляем историю сделок
+                const historyBody = document.getElementById('historyBody');
+                if (data.history && data.history.length > 0) {
+                    historyBody.innerHTML = data.history.slice(-10).map(h => {
+                        const profitClass = h.profitPercent > 0 ? 'profit' : 'loss';
+                        return `
+                        <tr>
+                            <td>${h.timestamp}</td>
+                            <td>${h.coin}</td>
+                            <td>${h.type}</td>
+                            <td>$${h.entryPrice ? h.entryPrice.toFixed(4) : '...'}</td>
+                            <td>$${h.exitPrice ? h.exitPrice.toFixed(4) : '...'}</td>
+                            <td class="${profitClass}">${h.profitPercent ? (h.profitPercent > 0 ? '+' : '') + (h.profitPercent * 100).toFixed(2) + '%' : '...'}</td>
+                            <td>$${h.fee ? h.fee.toFixed(4) : '0.0000'}</td>
+                            <td>${h.riskScore ? h.riskScore.toFixed(0) : '...'}</td>
+                        </tr>
+                        `;
+                    }).join('');
+                } else {
+                    historyBody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #95a5a6;">Нет истории сделок</td></tr>';
+                }
+                
+                // Обновляем лог анализа
+                const analysisLog = document.getElementById('analysisLog');
+                if (data.lastAnalysis && data.lastAnalysis.length > 0) {
+                    analysisLog.innerHTML = '';
+                    data.lastAnalysis.slice(-5).forEach(analysis => {
+                        const logEntry = document.createElement('div');
+                        logEntry.className = 'log-entry';
+                        const confidence = (analysis.signal.confidence * 100).toFixed(1);
+                        logEntry.innerHTML = `
+                            <div class="log-time">[${new Date().toLocaleTimeString()}]</div>
+                            <div>
+                                <span class="log-coin">${analysis.coin}</span>: 
+                                <span class="log-signal ${analysis.signal.direction === 'LONG' ? 'log-buy' : 'log-sell'}">
+                                    ${analysis.signal.direction}
+                                </span> 
+                                <span class="log-confidence">${confidence}%</span>
+                            </div>
+                            <div style="font-size: 0.85rem; color: #95a5a6; margin-top: 5px;">
+                                Текущая цена: $${analysis.currentPrice.toFixed(4)} | RSI: ${analysis.indicators.rsi} | MACD: ${analysis.indicators.macd}
+                            </div>
+                        `;
+                        analysisLog.insertBefore(logEntry, analysisLog.firstChild);
+                    });
+                } else {
+                    if (analysisLog.children.length === 0) {
                         const logEntry = document.createElement('div');
                         logEntry.className = 'log-entry';
                         logEntry.innerHTML = `
                             <div class="log-time">[${new Date().toLocaleTimeString()}]</div>
-                            <div><span class="log-coin">⚠️ Внимание</span>: Не удалось получить цены с BingX. Проверьте символы и ключи API.</div>
+                            <div><span class="log-coin">Ожидание сигнала</span>: Анализируем рынок...</div>
                         `;
                         analysisLog.appendChild(logEntry);
                     }
-                    
-                })
-                .catch(error => {
-                    console.error('Ошибка обновления данных:', error);
-                    const analysisLog = document.getElementById('analysisLog');
+                }
+                
+                // Проверка доступности цен
+                const pricesAvailable = data.currentPrices && Object.keys(data.currentPrices).length > 0;
+                if (!pricesAvailable && analysisLog.children.length === 0) {
                     const logEntry = document.createElement('div');
                     logEntry.className = 'log-entry';
                     logEntry.innerHTML = `
                         <div class="log-time">[${new Date().toLocaleTimeString()}]</div>
-                        <div><span class="log-coin">❌ Ошибка</span>: Не удалось получить данные от сервера. Проверьте подключение.</div>
+                        <div><span class="log-coin">⚠️ Внимание</span>: Не удалось получить цены с BingX. Проверьте символы и ключи API.</div>
                     `;
                     analysisLog.appendChild(logEntry);
-                });
+                }
+                
+            } catch (error) {
+                console.error('Ошибка обновления данных:', error);
+                showNotification(`Ошибка обновления данных: ${error.message}`, 'error');
+                
+                const analysisLog = document.getElementById('analysisLog');
+                const logEntry = document.createElement('div');
+                logEntry.className = 'log-entry';
+                logEntry.innerHTML = `
+                    <div class="log-time">[${new Date().toLocaleTimeString()}]</div>
+                    <div><span class="log-coin">❌ Ошибка</span>: Не удалось получить данные от сервера. ${error.message}</div>
+                `;
+                analysisLog.appendChild(logEntry);
+            }
         }
         
         // Запускаем обновление сразу при загрузке
@@ -697,6 +793,11 @@
             if (!document.hidden) {
                 updateUI();
             }
+        });
+
+        // Показываем приветственное сообщение
+        window.addEventListener('load', () => {
+            showNotification('Интерфейс успешно подключен к торговому боту!', 'success');
         });
     </script>
 </body>
