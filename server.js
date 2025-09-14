@@ -122,9 +122,11 @@ if (!BINGX_API_KEY || !BINGX_SECRET_KEY) {
 function signBingXRequest(params) {
   const cleanParams = { ...params };
   delete cleanParams.signature;
-  
   let paramString = "";
-  for (const key in cleanParams) {
+  // Сортируем ключи для согласованности (важно для некоторых API)
+  const sortedKeys = Object.keys(cleanParams).sort();
+  for (let i = 0; i < sortedKeys.length; i++) {
+    const key = sortedKeys[i];
     if (paramString !== "") {
       paramString += "&";
     }
@@ -134,7 +136,6 @@ function signBingXRequest(params) {
       paramString += `${key}=${encodeURIComponent(cleanParams[key])}`;
     }
   }
-  
   return CryptoJS.HmacSHA256(paramString, BINGX_SECRET_KEY).toString(CryptoJS.enc.Hex);
 }
 
@@ -168,7 +169,6 @@ async function getBingXServerTime() {
     const response = await axios.get(`${BINGX_FUTURES_URL}/openApi/swap/v2/server/time`, {
       timeout: 10000
     });
-    
     if (response.data.code === 0 && response.data.data && response.data.data.serverTime) {
       return response.data.data.serverTime;
     } else {
@@ -187,19 +187,16 @@ async function getBingXServerTime() {
 async function getBingXRealBalance() {
   try {
     console.log('🔍 [БАЛАНС] Запрос реального баланса...');
-    
     const timestamp = Date.now();
     const params = { timestamp, recvWindow: 5000 };
     const signature = signBingXRequest(params);
-    const url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/user/balance?timestamp=${timestamp}&recvWindow=5000&signature=${signature}`;
-
+    // ИСПРАВЛЕНО: Правильный эндпоинт для баланса
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/user/balance?timestamp=${timestamp}&recvWindow=5000&signature=${signature}`;
     console.log('🌐 [БАЛАНС] Отправляю запрос:', url);
-
     const response = await axios.get(url, {
       headers: { 'X-BX-APIKEY': BINGX_API_KEY },
       timeout: 10000
     });
-
     if (response.data.code === 0 && response.data.data) {
       let usdtBalance = null;
       if (response.data.data.balance?.asset === 'USDT') {
@@ -208,13 +205,11 @@ async function getBingXRealBalance() {
         const usdtAsset = response.data.data.assets.find(a => a.asset === 'USDT');
         usdtBalance = usdtAsset ? parseFloat(usdtAsset.walletBalance) : null;
       }
-
       if (usdtBalance !== null) {
         console.log(`💰 Баланс: $${usdtBalance.toFixed(2)}`);
         return usdtBalance;
       }
     }
-    
     console.error('❌ Не найден баланс USDT. Ответ от BingX:', JSON.stringify(response.data));
     return null;
   } catch (error) {
@@ -240,17 +235,14 @@ async function getBingXFuturesHistory(symbol, interval = '1h', limit = 100) {
       timestamp,
       recvWindow: 5000
     };
-
     const signature = signBingXRequest(params);
-    const url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/market/klines?symbol=${params.symbol}&interval=${params.interval}&limit=${params.limit}&timestamp=${params.timestamp}&recvWindow=5000&signature=${signature}`;
-
+    // ИСПРАВЛЕНО: Добавлен обязательный заголовок X-BX-APIKEY для приватного запроса
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/quote/klines?symbol=${params.symbol}&interval=${params.interval}&limit=${params.limit}&timestamp=${params.timestamp}&recvWindow=5000&signature=${signature}`;
     console.log(`🌐 Получение истории для ${symbol}: GET ${url}`);
-
     const response = await axios.get(url, {
-      headers: { 'X-BX-APIKEY': BINGX_API_KEY },
+      headers: { 'X-BX-APIKEY': BINGX_API_KEY }, // <-- ДОБАВЛЕНО
       timeout: 10000
     });
-
     if (response.data.code === 0 && Array.isArray(response.data.data)) {
       return response.data.data.map(candle => ({
         time: candle[0],
@@ -281,25 +273,21 @@ async function getCurrentPrices() {
   try {
     const prices = {};
     const serverTime = await getBingXServerTime();
-
     for (const coin of globalState.watchlist) {
       const params = {
         symbol: coin.symbol,
         timestamp: serverTime,
         recvWindow: 5000
       };
-
       const signature = signBingXRequest(params);
-      const url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/market/ticker?symbol=${params.symbol}&timestamp=${params.timestamp}&recvWindow=5000&signature=${signature}`;
-
+      // ИСПРАВЛЕНО: Добавлен обязательный заголовок X-BX-APIKEY для приватного запроса
+      const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/quote/price?symbol=${params.symbol}&timestamp=${params.timestamp}&recvWindow=5000&signature=${signature}`;
       console.log(`🌐 Получение цены для ${coin.symbol}: GET ${url}`);
-
       try {
         const response = await axios.get(url, {
-          headers: { 'X-BX-APIKEY': BINGX_API_KEY },
+          headers: { 'X-BX-APIKEY': BINGX_API_KEY }, // <-- ДОБАВЛЕНО
           timeout: 10000
         });
-
         if (response.data.code === 0 && response.data.data && response.data.data.price) {
           const price = parseFloat(response.data.data.price);
           const cleanSymbol = coin.name;
@@ -315,10 +303,8 @@ async function getCurrentPrices() {
           console.error('❌ Ответ от BingX:', JSON.stringify(error.response.data));
         }
       }
-
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 500)); // Задержка между запросами
     }
-
     globalState.currentPrices = prices;
     return prices;
   } catch (error) {
@@ -336,20 +322,18 @@ async function setBingXLeverage(symbol, leverage) {
     const timestamp = serverTime;
     const params = {
       symbol: symbol,
-      side: 'LONG',
+      side: 'BOTH', // ИСПРАВЛЕНО: BingX использует 'BOTH' для универсального плеча
       leverage: leverage.toString(),
       timestamp,
       recvWindow: 5000
     };
-
     const signature = signBingXRequest(params);
-    const url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/trade/leverage?symbol=${params.symbol}&side=${params.side}&leverage=${params.leverage}&timestamp=${params.timestamp}&recvWindow=5000&signature=${signature}`;
-
+    // ИСПРАВЛЕНО: Правильный эндпоинт для установки плеча
+    const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/trade/leverage?symbol=${params.symbol}&side=${params.side}&leverage=${params.leverage}&timestamp=${params.timestamp}&recvWindow=5000&signature=${signature}`;
     const response = await axios.post(url, null, {
       headers: { 'X-BX-APIKEY': BINGX_API_KEY, 'Content-Type': 'application/json' },
       timeout: 10000
     });
-
     if (response.data.code === 0) {
       console.log(`✅ Плечо ${leverage}x установлено для ${symbol}`);
       return true;
@@ -370,36 +354,31 @@ async function setBingXLeverage(symbol, leverage) {
 // ==========================
 // ФУНКЦИЯ: Размещение ордера
 // ==========================
-async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null, leverage, positionSide) {
+async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null, positionSide) {
   try {
     const serverTime = await getBingXServerTime();
     const timestamp = serverTime;
     const params = {
       symbol: symbol,
-      side,
-      type,
+      side: side,
+      type: type,
       quantity: quantity.toFixed(6),
-      timestamp,
-      positionSide,
+      timestamp: timestamp,
+      positionSide: positionSide,
       recvWindow: 5000
     };
-
     if (price && (type === 'LIMIT' || type === 'TAKE_PROFIT' || type === 'STOP')) {
       params.price = price.toFixed(8);
     }
-
     const signature = signBingXRequest(params);
-    let url = `${BINGX_FUTURES_URL}/openApi/cswap/v1/trade/order?symbol=${params.symbol}&side=${params.side}&type=${params.type}&quantity=${params.quantity}&timestamp=${params.timestamp}&positionSide=${params.positionSide}&recvWindow=5000&signature=${signature}`;
-
+    let url = `${BINGX_FUTURES_URL}/openApi/swap/v2/trade/order?symbol=${params.symbol}&side=${params.side}&type=${params.type}&quantity=${params.quantity}&timestamp=${params.timestamp}&positionSide=${params.positionSide}&recvWindow=5000&signature=${signature}`;
     if (price && (type === 'LIMIT' || type === 'TAKE_PROFIT' || type === 'STOP')) {
       url += `&price=${price.toFixed(8)}`;
     }
-
     const response = await axios.post(url, null, {
       headers: { 'X-BX-APIKEY': BINGX_API_KEY, 'Content-Type': 'application/json' },
       timeout: 10000
     });
-
     if (response.data.code === 0) {
       console.log(`✅ УСПЕШНЫЙ ОРДЕР: ${side} ${quantity} ${symbol} (${positionSide})`);
       return response.data.data;
@@ -422,14 +401,21 @@ async function placeBingXFuturesOrder(symbol, side, type, quantity, price = null
 // ==========================
 async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss, takeProfit) {
   const symbol = coin.symbol;
-  const positionSide = direction === 'LONG' ? 'LONG' : 'SHORT';
+  const positionSide = direction; // Для BingX в режиме One-way mode, positionSide совпадает с direction
   const side = direction === 'LONG' ? 'BUY' : 'SELL';
 
   console.log(`🌐 Отправка ${direction} ордера на BingX: ${size} ${symbol} с плечом ${leverage}x`);
   console.log(`🔄 Текущий режим: ${globalState.isRealMode ? 'РЕАЛЬНЫЙ' : 'ДЕМО'}`);
 
   if (globalState.isRealMode) {
-    const result = await placeBingXFuturesOrder(symbol, side, 'MARKET', size, null, leverage, positionSide);
+    // Устанавливаем плечо перед открытием позиции
+    const leverageSet = await setBingXLeverage(symbol, leverage);
+    if (!leverageSet) {
+      console.log(`❌ Не удалось установить плечо ${leverage}x для ${symbol}`);
+      return false;
+    }
+
+    const result = await placeBingXFuturesOrder(symbol, side, 'MARKET', size, null, positionSide);
     if (result) {
       const fee = size * price * globalState.takerFee;
       const trade = {
@@ -457,6 +443,7 @@ async function openFuturesTrade(coin, direction, leverage, size, price, stopLoss
       return false;
     }
   } else {
+    // Демо-режим
     const cost = (size * price) / leverage;
     const fee = size * price * globalState.takerFee;
     if (cost + fee > globalState.balance * globalState.maxRiskPerTrade) {
@@ -493,27 +480,24 @@ function calculateRiskScore(coin) {
   const fundamentalData = globalState.marketMemory.fundamentalData[coin];
   const volatility = globalState.marketMemory.volatilityHistory[coin][globalState.marketMemory.volatilityHistory[coin].length - 1] || 0.02;
   let riskScore = 50;
-  
+
   if (volatility > 0.05) riskScore += 20;
   if (volatility < 0.02) riskScore -= 10;
-  
+
   if (fundamentalData) {
     if (fundamentalData.marketCapRank <= 10) riskScore -= 15;
     else if (fundamentalData.marketCapRank > 50) riskScore += 10;
-    
     if (fundamentalData.developerActivity > 70) riskScore -= 10;
     else if (fundamentalData.developerActivity < 30) riskScore += 15;
-    
     if (fundamentalData.socialSentiment > 70) riskScore -= 5;
     else if (fundamentalData.socialSentiment < 30) riskScore += 10;
-    
     if (fundamentalData.communityGrowth > 0.1) riskScore -= 5;
     else if (fundamentalData.communityGrowth < -0.1) riskScore += 10;
   }
-  
+
   if (globalState.fearIndex < 30) riskScore -= 15;
   else if (globalState.fearIndex > 70) riskScore += 15;
-  
+
   return Math.max(0, Math.min(100, riskScore));
 }
 
@@ -523,7 +507,7 @@ function calculateRiskScore(coin) {
 async function getFundamentalData(coin) {
   const now = Date.now();
   const cacheKey = coin.name;
-  const cacheDuration = 3600000;
+  const cacheDuration = 3600000; // 1 час
 
   if (globalState.fundamentalCache[cacheKey] && now - globalState.fundamentalCache[cacheKey].timestamp < cacheDuration) {
     console.log(`💾 Кэш для ${coin.name}`);
@@ -542,7 +526,6 @@ async function getFundamentalData(coin) {
       },
       timeout: 10000
     });
-
     const data = response.data;
     const fundamentalData = {
       developerActivity: data.developer_data?.commits_30d || 50,
@@ -554,13 +537,13 @@ async function getFundamentalData(coin) {
     };
 
     globalState.marketMemory.fundamentalData[coin.name] = fundamentalData;
-    globalState.fundamentalCache[cacheKey] = { 
-       fundamentalData, 
-      timestamp: now 
+    globalState.fundamentalCache[cacheKey] = {
+      data: fundamentalData,
+      timestamp: now
     };
 
     console.log(`✅ Фундаментальные данные для ${coin.name} обновлены`);
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 2000)); // Задержка для Coingecko API
     return fundamentalData;
   } catch (error) {
     console.error(`❌ Ошибка получения фундаментальных данных для ${coin.name}:`, error.message);
@@ -584,41 +567,41 @@ async function getFundamentalData(coin) {
 // ==========================
 function calculateTechnicalIndicators(candles) {
   if (candles.length < 20) return null;
-  
+
   const closes = candles.map(c => c.close);
   const highs = candles.map(c => c.high);
   const lows = candles.map(c => c.low);
   const volumes = candles.map(c => c.volume);
-  
+
   // 1. SMA (Simple Moving Average) - 20 периодов
   const sma20 = closes.slice(-20).reduce((sum, price) => sum + price, 0) / 20;
-  
+
   // 2. EMA (Exponential Moving Average) - 12 и 26 периодов
   const ema12 = calculateEMA(closes.slice(-12), 12);
   const ema26 = calculateEMA(closes.slice(-26), 26);
-  
+
   // 3. RSI (Relative Strength Index) - 14 периодов
   const rsi14 = calculateRSI(closes.slice(-15));
-  
+
   // 4. MACD (Moving Average Convergence Divergence)
   const macd = ema12 - ema26;
   const signalLine = calculateEMA([macd], 9);
-  
+
   // 5. Bollinger Bands
   const stdDev = Math.sqrt(closes.slice(-20).reduce((sum, price) => sum + Math.pow(price - sma20, 2), 0) / 20);
   const upperBand = sma20 + (2 * stdDev);
   const lowerBand = sma20 - (2 * stdDev);
-  
+
   // 6. Stochastic Oscillator
   const recentHigh = Math.max(...highs.slice(-14));
   const recentLow = Math.min(...lows.slice(-14));
   const currentClose = closes[closes.length - 1];
   const stochastic = ((currentClose - recentLow) / (recentHigh - recentLow)) * 100;
-  
+
   // 7. Volume Analysis
   const avgVolume = volumes.slice(-20).reduce((sum, vol) => sum + vol, 0) / 20;
   const volumeRatio = volumes[volumes.length - 1] / avgVolume;
-  
+
   return {
     sma20,
     ema12,
@@ -648,11 +631,9 @@ function calculateEMA(prices, period) {
 // Вспомогательная функция для расчета RSI
 function calculateRSI(prices) {
   if (prices.length < 2) return 50;
-  
   let gains = 0;
   let losses = 0;
   let count = 0;
-  
   for (let i = 1; i < prices.length; i++) {
     const difference = prices[i] - prices[i-1];
     if (difference > 0) {
@@ -662,14 +643,11 @@ function calculateRSI(prices) {
     }
     count++;
   }
-  
   const avgGain = gains / count;
   const avgLoss = losses / count;
-  
   if (avgLoss === 0) return 100;
   const rs = avgGain / avgLoss;
   const rsi = 100 - (100 / (1 + rs));
-  
   return rsi;
 }
 
@@ -678,15 +656,15 @@ function calculateRSI(prices) {
 // ==========================
 function analyzeMarketAdvanced(candles, coinName, fundamentalData) {
   if (candles.length < 50) return null;
-  
+
   const indicators = calculateTechnicalIndicators(candles);
   if (!indicators) return null;
-  
+
   const currentPrice = indicators.currentPrice;
   let buySignals = 0;
   let sellSignals = 0;
   const reasoning = [];
-  
+
   // 1. Анализ тренда (SMA)
   if (currentPrice > indicators.sma20) {
     buySignals++;
@@ -695,7 +673,7 @@ function analyzeMarketAdvanced(candles, coinName, fundamentalData) {
     sellSignals++;
     reasoning.push("📉 Цена ниже SMA20 - нисходящий тренд");
   }
-  
+
   // 2. Анализ MACD
   if (indicators.macd > indicators.signalLine) {
     buySignals++;
@@ -704,7 +682,7 @@ function analyzeMarketAdvanced(candles, coinName, fundamentalData) {
     sellSignals++;
     reasoning.push("📊 MACD ниже сигнальной линии - медвежий сигнал");
   }
-  
+
   // 3. Анализ RSI
   if (indicators.rsi14 < 30) {
     buySignals++;
@@ -713,7 +691,7 @@ function analyzeMarketAdvanced(candles, coinName, fundamentalData) {
     sellSignals++;
     reasoning.push("🔴 RSI > 70 - перекупленность");
   }
-  
+
   // 4. Анализ Bollinger Bands
   if (currentPrice < indicators.lowerBand) {
     buySignals++;
@@ -722,7 +700,7 @@ function analyzeMarketAdvanced(candles, coinName, fundamentalData) {
     sellSignals++;
     reasoning.push("🎯 Цена выше верхней полосы Боллинджера - потенциальный откат вниз");
   }
-  
+
   // 5. Анализ Stochastic
   if (indicators.stochastic < 20) {
     buySignals++;
@@ -731,7 +709,7 @@ function analyzeMarketAdvanced(candles, coinName, fundamentalData) {
     sellSignals++;
     reasoning.push("🎲 Стохастик > 80 - перекупленность");
   }
-  
+
   // 6. Анализ объема
   if (indicators.volumeRatio > 1.5) {
     if (currentPrice > candles[candles.length - 2].close) {
@@ -742,7 +720,7 @@ function analyzeMarketAdvanced(candles, coinName, fundamentalData) {
       reasoning.push("🔊 Высокий объем подтверждает нисходящее движение");
     }
   }
-  
+
   // 7. Фундаментальный анализ
   if (fundamentalData) {
     if (fundamentalData.marketCapRank <= 10) {
@@ -762,7 +740,7 @@ function analyzeMarketAdvanced(candles, coinName, fundamentalData) {
       reasoning.push("👥 Рост сообщества - позитивный тренд");
     }
   }
-  
+
   // 8. Индекс страха и жадности
   if (globalState.fearIndex < 30) {
     buySignals += 0.5;
@@ -771,10 +749,10 @@ function analyzeMarketAdvanced(candles, coinName, fundamentalData) {
     sellSignals += 0.5;
     reasoning.push("😱 Индекс страха высокий - осторожность на рынке");
   }
-  
+
   const direction = buySignals > sellSignals ? 'LONG' : 'SHORT';
   const confidence = Math.abs(buySignals - sellSignals) / (buySignals + sellSignals + 1);
-  
+
   return {
     coin: coinName,
     currentPrice: currentPrice,
@@ -869,25 +847,38 @@ function setRiskLevel(level) {
 }
 
 // ==========================
-// ФУНКЦИЯ: Проверка открытых позиций
+// ФУНКЦИЯ: Проверка открытых позиций (Упрощенная версия для демо)
 // ==========================
 async function checkOpenPositions(currentPrices) {
   for (const coin of globalState.watchlist) {
     const position = globalState.positions[coin.name];
     if (!position) continue;
+
     const currentPrice = currentPrices[coin.name];
     if (!currentPrice) continue;
+
     const profitPercent = position.type === 'LONG'
       ? (currentPrice - position.entryPrice) / position.entryPrice
       : (position.entryPrice - currentPrice) / position.entryPrice;
 
+    // Закрываем позицию при прибыли >2% или убытке >1%
     if (profitPercent > 0.02 || profitPercent < -0.01) {
       console.log(`✅ ЗАКРЫТИЕ: ${position.type} ${coin.name} — прибыль ${profitPercent > 0 ? '+' : ''}${(profitPercent * 100).toFixed(2)}%`);
       position.status = 'CLOSED';
       position.exitPrice = currentPrice;
       position.profitPercent = profitPercent;
-      if (profitPercent > 0) globalState.stats.profitableTrades++;
-      else globalState.stats.losingTrades++;
+
+      if (profitPercent > 0) {
+        globalState.stats.profitableTrades++;
+        if (globalState.isRealMode) {
+          globalState.realBalance += (position.size * position.entryPrice * profitPercent) - position.fee;
+        } else {
+          globalState.balance += (position.size * position.entryPrice * profitPercent) - position.fee;
+        }
+      } else {
+        globalState.stats.losingTrades++;
+      }
+
       globalState.positions[coin.name] = null;
     }
   }
@@ -941,13 +932,11 @@ const createIndexHtml = () => {
             --dark: #34495e;
             --gray: #95a5a6;
         }
-        
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
@@ -956,12 +945,10 @@ const createIndexHtml = () => {
             padding: 15px;
             line-height: 1.6;
         }
-        
         .container {
             max-width: 1200px;
             margin: 0 auto;
         }
-        
         header {
             text-align: center;
             padding: 30px 0;
@@ -969,28 +956,24 @@ const createIndexHtml = () => {
             border-bottom: 1px solid rgba(255,255,255,0.1);
             margin-bottom: 30px;
         }
-        
         h1 {
             font-size: 2.8rem;
             margin-bottom: 8px;
             text-shadow: 0 2px 8px rgba(0,0,0,0.3);
             font-weight: 700;
         }
-        
         .subtitle {
             font-size: 1.3rem;
             font-style: italic;
             margin-bottom: 20px;
             color: #bdc3c7;
         }
-        
         .dashboard {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 20px;
             margin-bottom: 30px;
         }
-        
         .card {
             background: rgba(255,255,255,0.05);
             backdrop-filter: blur(10px);
@@ -1000,12 +983,10 @@ const createIndexHtml = () => {
             box-shadow: 0 8px 32px rgba(0,0,0,0.2);
             transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
-        
         .card:hover {
             transform: translateY(-5px);
             box-shadow: 0 12px 40px rgba(0,0,0,0.3);
         }
-        
         .card-title {
             font-size: 1.2rem;
             color: #bdc3c7;
@@ -1013,7 +994,6 @@ const createIndexHtml = () => {
             font-weight: 500;
             letter-spacing: 0.5px;
         }
-        
         .card-value {
             font-size: 2.2rem;
             font-weight: 800;
@@ -1022,14 +1002,12 @@ const createIndexHtml = () => {
             font-family: 'Courier New', monospace;
             text-shadow: 0 2px 4px rgba(0,0,0,0.3);
         }
-        
         .card-subtitle {
             color: #95a5a6;
             font-size: 0.9rem;
             margin-top: 8px;
             font-weight: 400;
         }
-        
         .status-badge {
             display: inline-block;
             padding: 6px 12px;
@@ -1038,19 +1016,16 @@ const createIndexHtml = () => {
             font-weight: 600;
             margin-left: 8px;
         }
-        
         .status-real {
             background: rgba(39, 174, 96, 0.2);
             color: #27ae60;
             border: 1px solid #27ae60;
         }
-        
         .status-demo {
             background: rgba(231, 76, 60, 0.2);
             color: #e74c3c;
             border: 1px solid #e74c3c;
         }
-        
         .btn {
             padding: 12px 24px;
             border: none;
@@ -1062,55 +1037,46 @@ const createIndexHtml = () => {
             margin: 5px 5px 5px 0;
             letter-spacing: 0.5px;
         }
-        
         .btn-primary {
             background: var(--primary);
             color: white;
             box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
         }
-        
         .btn-primary:hover {
             background: #2980b9;
             transform: translateY(-2px);
             box-shadow: 0 6px 16px rgba(52, 152, 219, 0.4);
         }
-        
         .btn-success {
             background: var(--success);
             color: white;
             box-shadow: 0 4px 12px rgba(39, 174, 96, 0.3);
         }
-        
         .btn-success:hover {
             background: #219a52;
             transform: translateY(-2px);
             box-shadow: 0 6px 16px rgba(39, 174, 96, 0.4);
         }
-        
         .btn-danger {
             background: var(--danger);
             color: white;
             box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
         }
-        
         .btn-danger:hover {
             background: #c0392b;
             transform: translateY(-2px);
             box-shadow: 0 6px 16px rgba(231, 76, 60, 0.4);
         }
-        
         .btn-warning {
             background: var(--warning);
             color: white;
             box-shadow: 0 4px 12px rgba(243, 156, 18, 0.3);
         }
-        
         .btn-warning:hover {
             background: #d35400;
             transform: translateY(-2px);
             box-shadow: 0 6px 16px rgba(243, 156, 18, 0.4);
         }
-        
         .controls {
             display: flex;
             flex-wrap: wrap;
@@ -1122,7 +1088,6 @@ const createIndexHtml = () => {
             border-radius: 16px;
             border: 1px solid rgba(255,255,255,0.08);
         }
-        
         table {
             width: 100%;
             background: rgba(255,255,255,0.05);
@@ -1132,14 +1097,12 @@ const createIndexHtml = () => {
             border-collapse: collapse;
             box-shadow: 0 8px 32px rgba(0,0,0,0.2);
         }
-        
         th, td {
             padding: 16px;
             text-align: left;
             border-bottom: 1px solid rgba(255,255,255,0.08);
             font-size: 0.95rem;
         }
-        
         th {
             background: rgba(52, 152, 219, 0.1);
             color: #bdc3c7;
@@ -1148,21 +1111,17 @@ const createIndexHtml = () => {
             letter-spacing: 0.8px;
             font-size: 0.85rem;
         }
-        
         tr:hover {
             background: rgba(255,255,255,0.08);
         }
-        
         .profit {
             color: #27ae60;
             font-weight: 700;
         }
-        
         .loss {
             color: #e74c3c;
             font-weight: 700;
         }
-        
         .log-entry {
             padding: 12px 16px;
             border-bottom: 1px solid rgba(255,255,255,0.05);
@@ -1171,31 +1130,25 @@ const createIndexHtml = () => {
             margin-bottom: 8px;
             animation: fadeIn 0.3s ease-out;
         }
-        
         .log-time {
             color: var(--gray);
             font-size: 0.8rem;
             margin-bottom: 4px;
         }
-        
         .log-coin {
             font-weight: 600;
             color: #ecf0f1;
         }
-        
         .log-signal {
             font-weight: 700;
             margin-left: 8px;
         }
-        
         .log-buy {
             color: #27ae60;
         }
-        
         .log-sell {
             color: #e74c3c;
         }
-        
         .log-confidence {
             display: inline-block;
             background: rgba(243, 156, 18, 0.2);
@@ -1205,7 +1158,6 @@ const createIndexHtml = () => {
             font-size: 0.8rem;
             margin-left: 10px;
         }
-        
         .analysis-log {
             background: rgba(255,255,255,0.05);
             border-radius: 16px;
@@ -1216,7 +1168,6 @@ const createIndexHtml = () => {
             overflow-y: auto;
             box-shadow: 0 8px 32px rgba(0,0,0,0.2);
         }
-        
         .section-header {
             font-size: 1.4rem;
             margin: 30px 0 20px 0;
@@ -1224,7 +1175,6 @@ const createIndexHtml = () => {
             padding-bottom: 10px;
             border-bottom: 2px solid rgba(255,255,255,0.1);
         }
-        
         .indicator {
             display: inline-block;
             width: 12px;
@@ -1233,23 +1183,18 @@ const createIndexHtml = () => {
             margin-right: 8px;
             vertical-align: middle;
         }
-        
         .indicator-green {
             background: #27ae60;
         }
-        
         .indicator-yellow {
             background: #f39c12;
         }
-        
         .indicator-red {
             background: #e74c3c;
         }
-        
         .indicator-gray {
             background: #95a5a6;
         }
-        
         .logout-btn {
             position: absolute;
             top: 20px;
@@ -1264,47 +1209,38 @@ const createIndexHtml = () => {
             font-weight: 600;
             box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
         }
-        
         .logout-btn:hover {
             background: #c0392b;
             transform: translateY(-2px);
         }
-        
         .loading {
             color: #95a5a6;
             font-style: italic;
             text-align: center;
             padding: 20px;
         }
-        
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        
         @media (max-width: 768px) {
             .dashboard {
                 grid-template-columns: 1fr;
             }
-            
             h1 {
                 font-size: 2rem;
             }
-            
             .card-value {
                 font-size: 1.8rem;
             }
-            
             th, td {
                 padding: 12px;
                 font-size: 0.9rem;
             }
-            
             .btn {
                 padding: 10px 18px;
                 font-size: 0.9rem;
             }
-            
             .controls {
                 flex-direction: column;
                 align-items: center;
@@ -1314,13 +1250,11 @@ const createIndexHtml = () => {
 </head>
 <body>
     <button class="logout-btn" onclick="logout()">Выйти</button>
-    
     <div class="container">
         <header>
             <h1>Философ Рынка — Торговый Бот v5.1</h1>
             <p class="subtitle">Система принятия решений на основе фундаментального и технического анализа</p>
         </header>
-        
         <div class="dashboard">
             <div class="card">
                 <div class="card-title">Текущий баланс</div>
@@ -1330,26 +1264,22 @@ const createIndexHtml = () => {
                     <span class="status-badge" id="modeBadge">ДЕМО</span>
                 </div>
             </div>
-            
             <div class="card">
                 <div class="card-title">Режим торговли</div>
                 <div class="card-value" id="tradeMode">adaptive</div>
                 <div class="card-subtitle">Текущая стратегия</div>
             </div>
-            
             <div class="card">
                 <div class="card-title">Уровень риска</div>
                 <div class="card-value" id="riskLevel">recommended</div>
                 <div class="card-subtitle">Макс. риск: 1.0%</div>
             </div>
-            
             <div class="card">
                 <div class="card-title">Индекс страха</div>
                 <div class="card-value" id="fearIndex">50</div>
                 <div class="card-subtitle">Настроения рынка</div>
             </div>
         </div>
-        
         <h2 class="section-header">Статистика торговли</h2>
         <div class="dashboard">
             <div class="card">
@@ -1357,26 +1287,22 @@ const createIndexHtml = () => {
                 <div class="card-value" id="totalTrades">0</div>
                 <div class="card-subtitle">С начала работы</div>
             </div>
-            
             <div class="card">
                 <div class="card-title">Прибыльных</div>
                 <div class="card-value" id="profitableTrades">0</div>
                 <div class="card-subtitle">Успешные сделки</div>
             </div>
-            
             <div class="card">
                 <div class="card-title">Убыточных</div>
                 <div class="card-value" id="losingTrades">0</div>
                 <div class="card-subtitle">Неудачные сделки</div>
             </div>
-            
             <div class="card">
                 <div class="card-title">Процент успеха</div>
                 <div class="card-value" id="winRate">0.0%</div>
                 <div class="card-subtitle">Win Rate</div>
             </div>
         </div>
-        
         <h2 class="section-header">Открытые позиции</h2>
         <div class="positions-table">
             <table id="positionsTable">
@@ -1398,7 +1324,6 @@ const createIndexHtml = () => {
                 </tbody>
             </table>
         </div>
-        
         <h2 class="section-header">Последние сделки</h2>
         <div class="history-table">
             <table>
@@ -1420,7 +1345,6 @@ const createIndexHtml = () => {
                 </tbody>
             </table>
         </div>
-        
         <h2 class="section-header">Лог философского анализа</h2>
         <div class="analysis-log" id="analysisLog">
             <div class="log-entry">
@@ -1428,7 +1352,6 @@ const createIndexHtml = () => {
                 <div><span class="log-coin">Бот запущен</span>: Ожидание данных с BingX API...</div>
             </div>
         </div>
-        
         <h2 class="section-header">Управление капиталом</h2>
         <div class="controls">
             <button class="btn btn-primary" onclick="toggleMode()">🔄 Переключить режим (ДЕМО/РЕАЛ)</button>
@@ -1438,7 +1361,6 @@ const createIndexHtml = () => {
             <button class="btn btn-danger" onclick="setRiskLevel('high')">🚀 Высокий риск</button>
         </div>
     </div>
-
     <script>
         function toggleMode() {
             fetch('/toggle-mode', { method: 'POST' })
@@ -1449,7 +1371,6 @@ const createIndexHtml = () => {
                     }
                 });
         }
-        
         function toggleTradeMode() {
             fetch('/toggle-trade-mode', { method: 'POST' })
                 .then(response => response.json())
@@ -1459,7 +1380,6 @@ const createIndexHtml = () => {
                     }
                 });
         }
-        
         function setRiskLevel(level) {
             fetch('/set-risk-level', { 
                 method: 'POST',
@@ -1473,14 +1393,12 @@ const createIndexHtml = () => {
                 }
             });
         }
-        
         function logout() {
             fetch('/logout', { method: 'GET' })
                 .then(() => {
                     window.location.href = '/login';
                 });
         }
-        
         // Обновляем интерфейс данными из API
         function updateUI() {
             fetch('/api/status')
@@ -1490,12 +1408,10 @@ const createIndexHtml = () => {
                     const displayBalance = data.isRealMode ? (data.realBalance || 0) : data.balance;
                     const balanceModeText = data.isRealMode ? 'Реальный баланс' : 'Демо-баланс';
                     const modeBadgeText = data.isRealMode ? 'РЕАЛ' : 'ДЕМО';
-                    
                     document.getElementById('balance').textContent = '$' + displayBalance.toFixed(2);
                     document.getElementById('balanceMode').textContent = balanceModeText;
                     document.getElementById('modeBadge').textContent = modeBadgeText;
                     document.getElementById('modeBadge').className = 'status-badge ' + (data.isRealMode ? 'status-real' : 'status-demo');
-                    
                     // Статистика
                     document.getElementById('tradeMode').textContent = data.tradeMode;
                     document.getElementById('riskLevel').textContent = data.riskLevel;
@@ -1504,7 +1420,6 @@ const createIndexHtml = () => {
                     document.getElementById('profitableTrades').textContent = data.stats.profitableTrades;
                     document.getElementById('losingTrades').textContent = data.stats.losingTrades;
                     document.getElementById('winRate').textContent = data.stats.winRate.toFixed(1) + '%';
-                    
                     // Открытые позиции
                     const positionsBody = document.getElementById('positionsBody');
                     if (data.openPositions && data.openPositions.length > 0) {
@@ -1514,7 +1429,6 @@ const createIndexHtml = () => {
                                 ? (currentPrice - pos.entryPrice) / pos.entryPrice
                                 : (pos.entryPrice - currentPrice) / pos.entryPrice;
                             const profitClass = profitPercent > 0 ? 'profit' : 'loss';
-                            
                             return '<tr>' +
                                 '<td>' + (pos.coin || '...') + '</td>' +
                                 '<td>' + (pos.type || '...') + '</td>' +
@@ -1528,7 +1442,6 @@ const createIndexHtml = () => {
                     } else {
                         positionsBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #95a5a6;">Нет открытых позиций</td></tr>';
                     }
-                    
                     // История сделок
                     const historyBody = document.getElementById('historyBody');
                     if (data.history && data.history.length > 0) {
@@ -1547,7 +1460,6 @@ const createIndexHtml = () => {
                     } else {
                         historyBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #95a5a6;">Нет истории сделок</td></tr>';
                     }
-                    
                     // Лог анализа
                     const analysisLog = document.getElementById('analysisLog');
                     if (data.lastAnalysis && data.lastAnalysis.length > 0) {
@@ -1577,7 +1489,6 @@ const createIndexHtml = () => {
                             analysisLog.appendChild(logEntry);
                         }
                     }
-                    
                     // Добавляем уведомление о доступности цен
                     const pricesAvailable = data.currentPrices && Object.keys(data.currentPrices).length > 0;
                     if (!pricesAvailable && analysisLog.children.length === 0) {
@@ -1587,7 +1498,6 @@ const createIndexHtml = () => {
                             '<div><span class="log-coin">⚠️ Внимание</span>: Не удалось получить цены с BingX. Проверьте символы и ключи API.</div>';
                         analysisLog.appendChild(logEntry);
                     }
-                    
                 })
                 .catch(error => {
                     console.error('Ошибка обновления данных:', error);
@@ -1599,13 +1509,10 @@ const createIndexHtml = () => {
                     analysisLog.appendChild(logEntry);
                 });
         }
-        
         // Запускаем обновление сразу при загрузке
         updateUI();
-        
         // Обновляем каждые 15 секунд
         setInterval(updateUI, 15000);
-        
         // Обновляем при каждом изменении вкладки
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
@@ -1616,7 +1523,6 @@ const createIndexHtml = () => {
 </body>
 </html>
   `;
-  
   fs.writeFileSync(path.join(__dirname, 'public', 'index.html'), htmlContent, 'utf8');
   console.log('✅ Файл index.html успешно создан с паролем из переменной окружения');
 };
@@ -1760,7 +1666,6 @@ app.post('/set-risk-level', (req, res) => {
 
 app.get('/api/status', (req, res) => {
   const openPositions = Object.values(globalState.positions).filter(p => p !== null);
-  
   res.json({
     balance: globalState.balance,
     realBalance: globalState.realBalance,
@@ -1784,16 +1689,24 @@ app.get('/api/status', (req, res) => {
   console.log('🔑 API-ключи: ЗАДАНЫ');
   console.log('🔐 Секретный ключ: ЗАДАН');
   console.log('✅ Проверка доступных монет на BingX...');
-  
+
   // Проверяем, какие монеты доступны
   for (const coin of globalState.watchlist) {
     console.log(`🔍 Проверка доступности ${coin.symbol}...`);
     try {
-      const response = await axios.get(`${BINGX_FUTURES_URL}/openApi/cswap/v1/market/ticker?symbol=${coin.symbol}`, {
-        headers: { 'X-BX-APIKEY': BINGX_API_KEY },
+      const serverTime = await getBingXServerTime();
+      const params = {
+        symbol: coin.symbol,
+        timestamp: serverTime,
+        recvWindow: 5000
+      };
+      const signature = signBingXRequest(params);
+      // ИСПРАВЛЕНО: Используем правильный публичный эндпоинт для проверки
+      const url = `${BINGX_FUTURES_URL}/openApi/swap/v2/quote/price?symbol=${params.symbol}&timestamp=${params.timestamp}&recvWindow=5000&signature=${signature}`;
+      const response = await axios.get(url, {
+        headers: { 'X-BX-APIKEY': BINGX_API_KEY }, // <-- ДОБАВЛЕНО
         timeout: 10000
       });
-      
       if (response.data.code === 0 && response.data.data && response.data.data.price) {
         console.log(`✅ Монета ${coin.symbol} доступна на BingX`);
       } else {
@@ -1812,21 +1725,23 @@ app.get('/api/status', (req, res) => {
       console.warn(`⚠️ Монета ${coin.symbol} удалена из watchlist`);
     }
   }
-  
+
   console.log(`✅ Актуальный список монет: ${globalState.watchlist.map(c => c.symbol).join(', ')}`);
-  
+
   setRiskLevel('recommended');
   globalState.tradeMode = 'adaptive';
   await forceUpdateRealBalance();
-  
   globalState.lastAnalysis = [];
 
   while (globalState.isRunning) {
     try {
-      console.log(`\n[${new Date().toLocaleTimeString()}] === АНАЛИЗ РЫНКА ===`);
+      console.log(`
+[${new Date().toLocaleTimeString()}] === АНАЛИЗ РЫНКА ===`);
+
       const fearIndex = await getFearAndGreedIndex();
       console.log(`😱 Индекс страха: ${fearIndex}`);
 
+      // Обновляем баланс каждые 5 минут в реальном режиме
       if (Date.now() % 300000 < 10000 && globalState.isRealMode) {
         await forceUpdateRealBalance();
       }
@@ -1834,19 +1749,22 @@ app.get('/api/status', (req, res) => {
       const currentPrices = await getCurrentPrices();
       globalState.currentPrices = currentPrices;
 
+      // Получаем фундаментальные данные для всех монет
       for (const coin of globalState.watchlist) {
         await getFundamentalData(coin);
       }
 
+      // Проверяем открытые позиции
       await checkOpenPositions(currentPrices);
 
       let bestOpportunity = null;
       globalState.lastAnalysis = [];
 
+      // Анализируем каждую монету
       for (const coin of globalState.watchlist) {
-        console.log(`\n🔍 Анализирую ${coin.name}...`);
+        console.log(`
+🔍 Анализирую ${coin.name}...`);
         const candles = await getBingXFuturesHistory(coin.symbol, '1h', 100);
-
         if (candles.length < 50) {
           console.log(`   ⚠️ Пропускаем ${coin.name} — недостаточно данных`);
           continue;
@@ -1855,7 +1773,6 @@ app.get('/api/status', (req, res) => {
         const prices = candles.map(c => c.close);
         const avgPrice = prices.reduce((sum, p) => sum + p, 0) / prices.length;
         const volatility = Math.sqrt(prices.reduce((sum, p) => sum + Math.pow(p - avgPrice, 2), 0) / prices.length) / avgPrice;
-        
         globalState.marketMemory.volatilityHistory[coin.name].push(volatility);
         if (globalState.marketMemory.volatilityHistory[coin.name].length > 24) {
           globalState.marketMemory.volatilityHistory[coin.name].shift();
@@ -1863,31 +1780,35 @@ app.get('/api/status', (req, res) => {
 
         const fundamentalData = globalState.marketMemory.fundamentalData[coin.name];
         const analysis = analyzeMarketAdvanced(candles, coin.name, fundamentalData);
-        
+
         if (!analysis || !analysis.signal.direction) continue;
 
         globalState.lastAnalysis.push(analysis);
-        
+
         if (!bestOpportunity || analysis.signal.confidence > (bestOpportunity?.signal?.confidence || 0)) {
           bestOpportunity = analysis;
         }
-        
+
         console.log(`   📊 RSI: ${analysis.indicators.rsi}, MACD: ${analysis.indicators.macd}, Стохастик: ${analysis.indicators.stochastic}`);
         console.log(`   💡 Сигнал: ${analysis.signal.direction} (уверенность: ${(analysis.signal.confidence * 100).toFixed(1)}%)`);
       }
 
+      // Если найдена лучшая возможность, открываем сделку
       if (bestOpportunity && (globalState.isRealMode || globalState.balance > 10)) {
-        console.log(`\n💎 ЛУЧШАЯ ВОЗМОЖНОСТЬ: ${bestOpportunity.signal.direction} по ${bestOpportunity.coin}`);
+        console.log(`
+💎 ЛУЧШАЯ ВОЗМОЖНОСТЬ: ${bestOpportunity.signal.direction} по ${bestOpportunity.coin}`);
         console.log(`   📈 Уверенность: ${(bestOpportunity.signal.confidence * 100).toFixed(1)}%`);
         console.log(`   🧠 Причины: ${bestOpportunity.signal.reasoning.join('; ')}`);
-        
+
         const price = bestOpportunity.currentPrice;
         const size = (globalState.isRealMode ? (globalState.realBalance || 100) : globalState.balance) * globalState.maxRiskPerTrade / (price * 0.01);
         const finalSize = Math.max(0.001, size);
         const stopLoss = price * (1 - 0.01);
         const takeProfit = price * (1 + 0.02);
 
-        console.log(`\n🟢 ВХОД: ${bestOpportunity.signal.direction} ${finalSize.toFixed(6)} ${bestOpportunity.coin} с плечом ${bestOpportunity.signal.leverage}x`);
+        console.log(`
+🟢 ВХОД: ${bestOpportunity.signal.direction} ${finalSize.toFixed(6)} ${bestOpportunity.coin} с плечом ${bestOpportunity.signal.leverage}x`);
+
         await openFuturesTrade(
           {symbol: bestOpportunity.coin.toUpperCase() + '-USDT', name: bestOpportunity.coin},
           bestOpportunity.signal.direction,
@@ -1898,15 +1819,19 @@ app.get('/api/status', (req, res) => {
           takeProfit
         );
       } else {
-        console.log(`\n⚪ Нет подходящих возможностей — ожидаем...`);
+        console.log(`
+⚪ Нет подходящих возможностей — ожидаем...`);
       }
 
+      // Обновляем статистику
       globalState.stats.winRate = globalState.stats.totalTrades > 0
         ? (globalState.stats.profitableTrades / globalState.stats.totalTrades) * 100
         : 0;
 
+      // Логируем баланс каждую минуту
       if (Date.now() % 60000 < 10000) {
-        console.log(`\n💰 Баланс: $${(globalState.isRealMode ? globalState.realBalance : globalState.balance)?.toFixed(2) || '...'}`);
+        console.log(`
+💰 Баланс: $${(globalState.isRealMode ? globalState.realBalance : globalState.balance)?.toFixed(2) || '...'}`);
       }
 
     } catch (error) {
@@ -1916,7 +1841,8 @@ app.get('/api/status', (req, res) => {
       }
     }
 
-    console.log(`\n💤 Ждём 60 секунд...`);
+    console.log(`
+💤 Ждём 60 секунд...`);
     await new Promise(r => setTimeout(r, 60000));
   }
 })();
